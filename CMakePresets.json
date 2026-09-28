@@ -1,0 +1,140 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 29,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Ninja, Release, gcc",
+      "description": "Обычная сборка: плагин, тесты и линтеры.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "REAPER_CAM_BUILD_TESTS": "ON",
+        "REAPER_CAM_WERROR": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "inherits": "default",
+      "displayName": "Отладочная сборка для живых проверок",
+      "description": "Журнал вызовов REAPER и тестовый источник кадров (design.md D10). Пользователю эта сборка не ставится.",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "clang, ASan + UBSan",
+      "description": "Отдельный каталог сборки: флаги санитайзеров несовместимы с обычным. Компилятор clang — вторая, независимая от gcc диагностика.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "REAPER_CAM_WERROR": "ON",
+        "REAPER_CAM_SANITIZE": "address,undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "displayName": "Собрать всё"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "displayName": "Собрать отладочную сборку"
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "displayName": "Собрать под санитайзерами"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "displayName": "Все тесты и проверки",
+      "description": "Юнит-тесты, изоляция библиотек, clang-format, clang-tidy и сборка под санитайзерами.",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "jobs": 0
+      }
+    },
+    {
+      "name": "quick",
+      "inherits": "default",
+      "displayName": "Всё, кроме долгого",
+      "description": "Без clang-tidy и сборки под санитайзерами: для повседневного прогона это дорого.",
+      "filter": {
+        "exclude": {
+          "label": "slow"
+        }
+      }
+    },
+    {
+      "name": "sanitize",
+      "inherits": "default",
+      "configurePreset": "sanitize",
+      "displayName": "Тесты под санитайзерами",
+      "description": "Линтеры исключены: они смотрят на исходники, а не на сборку, и уже отработали в default.",
+      "filter": {
+        "exclude": {
+          "label": "lint"
+        }
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "sanitize",
+      "displayName": "Сборка на clang с санитайзерами и прогон её тестов",
+      "description": "Вызывается тестом sanitize_suite из обычной сборки, но запускается и отдельно.",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "sanitize"
+        },
+        {
+          "type": "build",
+          "name": "sanitize"
+        },
+        {
+          "type": "test",
+          "name": "sanitize"
+        }
+      ]
+    },
+    {
+      "name": "push-check",
+      "displayName": "Всё, что должно быть зелёным перед push",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "default"
+        },
+        {
+          "type": "build",
+          "name": "default"
+        },
+        {
+          "type": "test",
+          "name": "default"
+        }
+      ]
+    }
+  ]
+}

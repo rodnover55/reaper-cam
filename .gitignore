@@ -1,0 +1,9 @@
+build/
+out/
+compile_commands.json
+.cache/
+CMakeUserPresets.json
+
+*.so
+*.dylib
+*.dll

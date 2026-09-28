@@ -1,0 +1,53 @@
+# Набор проверок clang-tidy.
+#
+# Отбор по одному правилу: проверка остаётся, если ловит ошибку, и уходит, если
+# спорит о вкусе. Отключённое ниже — именно вкус, причём тот, который в этом
+# коде выбран сознательно: однострочники без фигурных скобок, числа в тестовой
+# разметке, короткие имена индексов, `#pragma once`.
+#
+# Три отключения стоят особняком и по другим причинам:
+#
+#   modernize-use-std-print, -std-format — clang-tidy 21 падает с сегфолтом,
+#     разбирая форматную строку с UTF-8 и `%%`. Баг в самом LLVM, найден в
+#     reaper-tabs, к коду отношения не имеет.
+#   modernize-use-integer-sign-comparison — настоящие сравнения со знаком ловит
+#     -Wsign-compare на сборке, а здесь чек спорит с явными приведениями.
+#
+# Чеки, спотыкающиеся о макросы doctest, отключены не здесь, а в tests/.clang-tidy:
+# в libs/ и src/ они работают.
+
+Checks: >
+  bugprone-*,
+  cert-*,
+  concurrency-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -modernize-return-braced-init-list,
+  -modernize-use-integer-sign-comparison,
+  -modernize-use-nodiscard,
+  -modernize-use-std-format,
+  -modernize-use-std-print,
+  -modernize-use-trailing-return-type,
+  -performance-enum-size,
+  -portability-avoid-pragma-once,
+  -readability-braces-around-statements,
+  -readability-convert-member-functions-to-static,
+  -readability-identifier-length,
+  -readability-implicit-bool-conversion,
+  -readability-magic-numbers,
+  -readability-math-missing-parentheses,
+  -readability-redundant-member-init,
+  -readability-use-anyofallof
+
+WarningsAsErrors: '*'
+
+# Свои заголовки проверяются, чужие — нет. Одного HeaderFilterRegex мало:
+# в build/_deps попадаются каталоги src/, которые он бы принял за свои.
+HeaderFilterRegex: '.*/(libs|src|tests)/.*'
+ExcludeHeaderFilterRegex: '.*/_deps/.*'

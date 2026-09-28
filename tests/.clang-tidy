@@ -1,0 +1,26 @@
+# Послабления только для тестов; всё остальное наследуется из корневого файла.
+#
+# Все три чека срабатывают на раскрытии макросов doctest, то есть на чужом коде,
+# попавшем в свой файл. Диагностика привязывается к строке с TEST_CASE или CHECK
+# и выглядит как своя, хотя править в ней нечего.
+#
+#   misc-use-anonymous-namespace — TEST_CASE разворачивается в функцию со
+#     спецификатором static.
+#   readability-function-cognitive-complexity — каждый CHECK разворачивается в
+#     ветвление, и тело теста набирает сложность на пустом месте.
+#   bugprone-unchecked-optional-access — после REQUIRE значение заведомо есть,
+#     но поток управления спрятан в макросе, и анализ этого не видит.
+#
+# Ещё два — не про doctest:
+#
+#   cert-msc32-c, cert-msc51-cpp — генератор случайных чисел с постоянным
+#     зерном: в тестах это не уязвимость, а повторяемость прогона.
+
+InheritParentConfig: true
+
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -cert-msc32-c,
+  -cert-msc51-cpp,
+  -misc-use-anonymous-namespace,
+  -readability-function-cognitive-complexity

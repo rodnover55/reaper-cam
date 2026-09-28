@@ -1,0 +1,21 @@
+// Описание форм модуля.
+//
+// Единственный исходник формы на все платформы. Под SWELL из него порождается
+// таблица C++ скриптом WDL/swell/swell_resgen.pl; на Windows тот же файл
+// собрал бы компилятор ресурсов.
+//
+// Координаты в диалоговых единицах, а не в пикселях: масштаб у платформ разный.
+
+#include "ids.h"
+
+// Настройки формата встраиваются в окно REAPER (Track recording settings,
+// Render), поэтому это дочерняя форма без рамки и без OK — как у MP3 из SDK.
+IDD_FORMAT_CONFIG DIALOG DISCARDABLE 0, 0, 288, 52
+STYLE DS_CONTROL | WS_CHILD
+BEGIN
+    LTEXT           "Camera:", IDC_FORMAT_CAMERA_LABEL, 4, 4, 40, 10
+    COMBOBOX        IDC_FORMAT_CAMERA, 48, 2, 236, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Mode:", IDC_FORMAT_MODE_LABEL, 4, 20, 40, 10
+    COMBOBOX        IDC_FORMAT_MODE, 48, 18, 236, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "", IDC_FORMAT_STATUS, 4, 36, 280, 10
+END
