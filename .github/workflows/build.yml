@@ -1,0 +1,147 @@
+# Сборка модуля для Linux, Windows и macOS и выкладка в Releases.
+#
+# Каждый push в любую ветку собирает и проверяет модуль на трёх ОС; файлы
+# модуля лежат в артефактах прогона. Тег vX.Y.Z (та же версия, что в
+# project() в CMakeLists.txt) вдобавок создаёт релиз с этими файлами.
+#
+# Сборка — `cmake --workflow --preset release`: её же можно повторить у себя.
+
+name: Сборка
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Новый push в рабочую ветку отменяет недоделанную сборку прошлого; master и
+# теги собираются до конца.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # Linux собирается в Ubuntu 22.04: модуль требует glibc не новее той, с
+    # которой собран, и чем она старше, тем больше систем его загрузит.
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            cc: gcc-13
+            cxx: g++-13
+            file: reaper_cam.so
+          - name: Windows x64
+            os: windows-latest
+            cc: cl
+            cxx: cl
+            file: reaper_cam.dll
+          - name: macOS (Apple Silicon и Intel)
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+            # Один файл на оба процессора: REAPER бывает и тот и другой.
+            osx_architectures: arm64;x86_64
+            file: reaper_cam.dylib
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      CMAKE_OSX_ARCHITECTURES: ${{ matrix.osx_architectures }}
+
+    steps:
+      # GCC 13 — первый с std::format; в Ubuntu 22.04 он из toolchain PPA.
+      # CMake там 3.22, а пресетам нужен 3.29 — он из PyPI.
+      - name: Инструменты (Linux)
+        if: runner.os == 'Linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            software-properties-common gpg-agent ca-certificates git perl python3-pip
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get install -y --no-install-recommends g++-13
+          pip3 install cmake ninja
+
+      - name: Инструменты (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y --no-progress }
+
+      - name: Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: command -v ninja || brew install ninja
+
+      - uses: actions/checkout@v5
+
+      - name: Сборка и тесты
+        run: cmake --workflow --preset release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.file }}
+          path: build/release/${{ matrix.file }}
+          if-no-files-found: error
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Версия тега совпадает с версией проекта
+        id: version
+        run: |
+          project=$(sed -n 's/^  VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt)
+          tag=${GITHUB_REF_NAME#v}
+          echo "Версия в CMakeLists.txt: $project, тег: $GITHUB_REF_NAME"
+          case "$tag" in
+            "$project" | "$project"-*) ;;
+            *) echo "::error::Тег $GITHUB_REF_NAME не совпадает с версией проекта $project"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Контрольные суммы
+        working-directory: dist
+        run: sha256sum reaper_cam.* | tee SHA256SUMS.txt
+
+      # Тег с суффиксом (v0.2.0-rc1) — предварительный релиз. Повторный прогон
+      # того же тега заменяет файлы в уже созданном релизе.
+      - name: Выкладка
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            prerelease=""
+            case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$TAG" dist/* --verify-tag --generate-notes \
+              --title "reaper-cam $VERSION" $prerelease
+          fi

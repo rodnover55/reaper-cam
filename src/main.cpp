@@ -35,13 +35,12 @@
 #include "format.hpp"
 #include "journal.hpp"
 #include "services.hpp"
+#include "views/format_config.hpp"
 
 #include <string>
 
 extern "C" REAPER_PLUGIN_DLL_EXPORT int
 REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE instance, reaper_plugin_info_t *rec) {
-  (void)instance;
-
   if (!rec) { // rec == nullptr — REAPER выгружает расширение
     cam::reaper::unregisterDebugActions();
     cam::reaper::unregisterArmWatch();
@@ -62,19 +61,21 @@ REAPER_PLUGIN_ENTRYPOINT(REAPER_PLUGIN_HINSTANCE instance, reaper_plugin_info_t 
 #ifdef CAM_DEBUG_BUILD
   // Журнал лежит в каталоге ресурсов: у каждого экземпляра REAPER он свой.
   cam::reaper::openJournal(std::string(GetResourcePath()) + "/reaper-cam.log");
-  cam::reaper::journal("load (сборка {})", cam::reaper::kBuildStamp);
+  cam::reaper::journal("load (версия {}, сборка {})", cam::reaper::kVersion,
+                       cam::reaper::kBuildStamp);
 #endif
 
+  cam::reaper::views::setResourceModule(instance);
   cam::reaper::initServices();
   cam::reaper::registerMainTimer(rec);
   cam::reaper::registerFormat(rec);
   cam::reaper::registerArmWatch(rec);
   cam::reaper::registerDebugActions(rec);
 
-  // Время сборки — чтобы по консоли было видно, тот ли модуль загружен:
-  // забытый `cmake --install` выглядит как «ничего не изменилось».
-  const std::string hello =
-      std::string("reaper-cam loaded (сборка ") + cam::reaper::kBuildStamp + ")\n";
+  // Версия и время сборки — чтобы по консоли было видно, тот ли модуль
+  // загружен: забытый `cmake --install` выглядит как «ничего не изменилось».
+  const std::string hello = std::string("reaper-cam ") + cam::reaper::kVersion +
+                            " loaded (сборка " + cam::reaper::kBuildStamp + ")\n";
 
   ShowConsoleMsg(hello.c_str());
 

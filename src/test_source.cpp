@@ -244,6 +244,8 @@ public:
     return inner_->open(id, mode);
   }
 
+  std::string unsupported() const override { return inner_->unsupported(); }
+
 private:
   std::unique_ptr<capture::Backend> inner_;
 };

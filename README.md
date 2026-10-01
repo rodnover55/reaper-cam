@@ -18,9 +18,49 @@
 | `cmake --build build --target format` | Привести форматирование в порядок, когда упал `clang_format`. |
 | `cmake --workflow --preset sanitize` | Прогнать тесты под ASan и UBSan, если есть подозрение на порчу памяти. |
 | `cmake --install build` | Поставить плагин в REAPER и попробовать вживую. |
+| `cmake --workflow --preset release` | Собрать модуль так, как его собирает CI для Releases, и прогнать тесты. Файл — в `build/release`. |
 
 Полный список — `cmake --list-presets=<configure|build|test|workflow>`. Личные
 пресеты кладутся в `CMakeUserPresets.json`, он в репозиторий не попадает.
+
+## Сборки и релизы
+
+GitHub Actions (`.github/workflows/build.yml`) на каждый push собирает модуль
+пресетом `release` на трёх системах и прогоняет тесты:
+
+| Система | Где собирается | Файл |
+|---|---|---|
+| Linux x86_64 | Ubuntu 22.04, GCC 13 | `reaper_cam.so` |
+| Windows x64 | MSVC | `reaper_cam.dll` |
+| macOS 13.3+, arm64 и x86_64 одним файлом | Apple clang | `reaper_cam.dylib` |
+
+Файлы лежат в артефактах прогона. Линтеры в CI не идут: их результат зависит
+от версии инструментов, и они остаются в `push-check`.
+
+Захват камер пока есть только для Linux. На Windows и macOS модуль
+собирается с пустышкой `capture::UnsupportedBackend`
+(`libs/capture/include/cam/capture/unsupported_backend.hpp`): формат и окно
+настроек работают, камер нет, дубль чёрный, а консоль и окно говорят почему.
+Захват для новой ОС — своя библиотека рядом с `libs/capture_v4l2` и ветка в
+`systemBackend()` (`src/services.cpp`).
+
+Чтобы модуль грузился на чужих машинах, пресет `release` включает
+`REAPER_CAM_STATIC_RUNTIME`: на Linux libstdc++ вкомпонована и скрыта
+(`cmake/reaper_cam.map`), на Windows рантайм MSVC статический.
+
+Релиз:
+
+1. Поднять версию в `project()` в `CMakeLists.txt` и закоммитить.
+2. Поставить тег с той же версией и отправить его:
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+Тег запускает ту же сборку и после неё создаёт релиз с тремя файлами и
+`SHA256SUMS.txt`; описание собирается из коммитов и PR. Если тег не совпадает
+с версией в `CMakeLists.txt`, релиз не создаётся. Тег с суффиксом
+(`v0.2.0-rc1`) даёт предварительный релиз.
 
 ## Инструменты
 

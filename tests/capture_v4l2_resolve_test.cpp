@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <random>
+#include <string>
 
 using cam::capture_v4l2::resolveCamera;
 
@@ -12,8 +14,12 @@ namespace fs = std::filesystem;
 namespace {
 
 /// Временное дерево, как в /dev: узлы video*, ссылки в v4l/by-id и v4l/by-path.
+///
+/// Каталог у каждого дерева свой: CTest гоняет случаи параллельно, отдельными
+/// процессами, и общее дерево одного случая сносило бы ссылки другого.
 struct DevTree {
-  fs::path root = fs::temp_directory_path() / "reaper-cam-tests" / "dev";
+  fs::path root = fs::temp_directory_path() / "reaper-cam-tests" /
+                  ("dev-" + std::to_string(std::random_device{}()));
 
   DevTree() {
     fs::remove_all(root);

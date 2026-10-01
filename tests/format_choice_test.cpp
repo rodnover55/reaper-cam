@@ -83,6 +83,19 @@ TEST_CASE("выбор формата: камер нет — конфигурац
   CHECK(choice.status() == "No cameras found.");
 }
 
+TEST_CASE("выбор формата: захвата для ОС нет — строка говорит об этом, а не «камер нет»") {
+  const std::string unsupported = "Camera capture on Windows is not supported yet.";
+
+  const FormatChoice empty({}, FormatConfig{}, unsupported);
+  CHECK(empty.status() == unsupported);
+
+  // Проект с камерой, записанный на Linux, открыт там, где захвата нет.
+  const FormatConfig saved{.cameraId = laptop().id, .cameraName = laptop().name, .mode = k720};
+  const FormatChoice remembered({}, saved, unsupported);
+  CHECK(remembered.config() == saved);
+  CHECK(remembered.status() == unsupported);
+}
+
 TEST_CASE("выбор формата: подписи режимов") {
   CHECK(modeLabel(k720) == "1280x720, 30 fps");
   CHECK(

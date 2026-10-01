@@ -1,5 +1,6 @@
-# Интерфейс источника кадров, реестр устройств и тестовый источник. От ОС и
-# хоста не зависит (design.md D9): это проверяет тест capture_isolation.
+# Интерфейс источника кадров, реестр устройств, тестовый источник и пустышка
+# для ОС без захвата. От ОС и хоста не зависит (design.md D9): это проверяет
+# тест capture_isolation.
 #
 # LICE и jpeglib из WDL — не ОС и не хост: тестовый источник рисует ими кадр
 # и сжимает его (design.md D10). Наружу они не видны: заголовки библиотеки
@@ -7,7 +8,8 @@
 add_library(cam_capture STATIC
   src/device_registry.cpp
   src/jpeg_encoder.cpp
-  src/test_pattern.cpp)
+  src/test_pattern.cpp
+  src/unsupported_backend.cpp)
 
 target_include_directories(cam_capture PUBLIC include)
 

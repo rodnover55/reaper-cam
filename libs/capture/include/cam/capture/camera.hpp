@@ -93,6 +93,10 @@ public:
 
   /// Открывает камеру `id` в режиме `mode` монопольно и запускает захват.
   virtual std::unique_ptr<Capture> open(const std::string &id, const CameraMode &mode) = 0;
+
+  /// Почему камер нет и не будет, сколько их ни подключай: захвата для этой
+  /// ОС ещё нет. Пусто — захват есть, а камеры перечисляет `list`.
+  virtual std::string unsupported() const { return {}; }
 };
 
 } // namespace cam::capture
