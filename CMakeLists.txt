@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
+# std::format с дробными числами libc++ системы умеет начиная с macOS 13.3:
+# на более старой система модуль не загрузит. Задаётся до project() — так
+# требует CMake; на других ОС ни на что не влияет.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.3" CACHE STRING "Наименьшая версия macOS")
+
 project(reaper-cam
   VERSION 0.1.0
   DESCRIPTION "REAPER extension: camera recording"
@@ -18,12 +23,50 @@ endif()
 
 option(REAPER_CAM_BUILD_TESTS "Собирать тесты (REAPER и камера для них не нужны)" ON)
 option(REAPER_CAM_WERROR "Считать предупреждения компилятора ошибками" OFF)
+option(REAPER_CAM_STATIC_RUNTIME
+  "Вкомпоновать рантайм C++ в модуль — для сборки, которая уходит на чужие машины" OFF)
 
 set(REAPER_CAM_SANITIZE "" CACHE STRING
   "Санитайзеры списком для -fsanitize, например address,undefined")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CamWarnings)
+
+# Заглушка SWELL для macOS написана на Objective-C++.
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
+
+# --- Windows ------------------------------------------------------------------
+# windows.h иначе объявляет min и max макросами — как SWELL без
+# WDL_NO_DEFINE_MINMAX. fopen и getenv MSVC объявляет устаревшими.
+if(WIN32)
+  add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(MSVC)
+  # Исходники в UTF-8 без BOM, а MSVC по умолчанию читает их в кодировке
+  # системы. Только для C и C++: компилятор ресурсов этого ключа не знает.
+  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>")
+
+  # Ошибка jpeglib раскручивается исключением через его функции extern "C"
+  # (libs/capture/src/jpeg_encoder.cpp). С /EHsc MSVC считает, что такие
+  # функции не бросают, и вправе выбросить обработчики; /EHs — не считает.
+  string(REPLACE "/EHsc" "/EHs" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
+  # Без этого модулю нужен Visual C++ Redistributable, а его у пользователя
+  # может не быть: REAPER покажет расширение в списке со статусом "Error".
+  if(REAPER_CAM_STATIC_RUNTIME)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  endif()
+endif()
+
+# Чужой код собирается без предупреждений: чинить там нечего.
+if(MSVC)
+  set(cam_no_warnings /w)
+else()
+  set(cam_no_warnings -w)
+endif()
 
 # --- Санитайзеры --------------------------------------------------------------
 # Флаги ставятся до объявления целей и поэтому достаются всем, включая чужой
@@ -111,10 +154,15 @@ add_library(wdl_jpeg STATIC
 
 target_include_directories(wdl_jpeg SYSTEM PUBLIC "${wdl_SOURCE_DIR}")
 
+target_compile_options(wdl_jpeg PRIVATE ${cam_no_warnings})
+
 # -fexceptions: ошибку jpeglib свой код превращает в исключение C++, и оно
 # раскручивается через кадры jpeglib. Без таблиц раскрутки в коде на C это
-# std::terminate (libs/capture/src/jpeg_encoder.cpp).
-target_compile_options(wdl_jpeg PRIVATE -w -fexceptions)
+# std::terminate (libs/capture/src/jpeg_encoder.cpp). MSVC на x64 пишет
+# таблицы раскрутки для всякой функции, ему ключ не нужен.
+if(NOT MSVC)
+  target_compile_options(wdl_jpeg PRIVATE -fexceptions)
+endif()
 
 # jpeglib 6b сдвигает влево отрицательные числа (jfdctint.c и соседи):
 # формально это неопределённое поведение, на деле — арифметика, на которую код
@@ -139,7 +187,7 @@ add_library(wdl_lice STATIC
 
 target_include_directories(wdl_lice SYSTEM PUBLIC "${wdl_SOURCE_DIR}")
 target_compile_definitions(wdl_lice PUBLIC _LICE_NO_SYSBITMAPS_ WDL_NO_DEFINE_MINMAX)
-target_compile_options(wdl_lice PRIVATE -w)
+target_compile_options(wdl_lice PRIVATE ${cam_no_warnings})
 target_link_libraries(wdl_lice PUBLIC wdl_jpeg)
 
 # --- Библиотеки ---------------------------------------------------------------
@@ -150,17 +198,22 @@ add_subdirectory(libs/timing)
 add_subdirectory(libs/container)
 add_subdirectory(libs/capture)
 
-# Захват зависит от ОС (design.md D9). В этом изменении он есть только для
-# Linux; ветки Windows и macOS появятся вместе с их модулями захвата.
+# Захват зависит от ОС (design.md D9). Пока он есть только для Linux; на
+# Windows и macOS модуль собирается с пустышкой capture::UnsupportedBackend:
+# формат записи и окно настроек есть, камер нет, дубль чёрный.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_subdirectory(libs/capture_v4l2)
   add_subdirectory(tools)
+  set(cam_system_capture cam_capture_v4l2)
+else()
+  set(cam_system_capture "")
 endif()
 
 # --- Ресурсы форм -------------------------------------------------------------
 # Формы описаны в src/views/forms.rc — одним исходником на все платформы.
-# Под SWELL из него порождается таблица C++; на Windows тот же файл собрал бы
-# компилятор ресурсов, поэтому шаг ниже только для не-Windows.
+# Под SWELL из него порождается таблица C++; на Windows тот же файл собирает
+# компилятор ресурсов (src/views/forms_win.rc), поэтому шаг ниже только для
+# не-Windows.
 #
 # Генератор пишет результат рядом с входным файлом, поэтому .rc и ids.h
 # сначала копируются в каталог сборки — иначе порождённое насорит в src/.
@@ -202,8 +255,7 @@ add_library(reaper_cam MODULE
   src/sink.cpp
   src/take.cpp
   src/test_source.cpp
-  src/views/format_config.cpp
-  src/views/resources.cpp)
+  src/views/format_config.cpp)
 
 # Свои заголовки включаются от корня src/.
 target_include_directories(reaper_cam PRIVATE src)
@@ -212,8 +264,8 @@ target_include_directories(reaper_cam PRIVATE src)
 # сборке (design.md D10): пользователю они не показываются.
 target_compile_definitions(reaper_cam PRIVATE $<$<CONFIG:Debug>:CAM_DEBUG_BUILD>)
 
-# Отметка времени сборки, которую расширение печатает при загрузке. По ней
-# видно, тот ли модуль в REAPER: не поставленный вовремя плагин выглядит как
+# Версия и отметка времени сборки, которые расширение печатает при загрузке.
+# По ним видно, тот ли модуль в REAPER: не поставленный вовремя плагин выглядит как
 # «поведение не изменилось», и отличить это от настоящей ошибки иначе нечем.
 #
 # Цель обновляется на каждой сборке, поэтому одна единица трансляции
@@ -222,22 +274,27 @@ set(cam_build_stamp "${CMAKE_BINARY_DIR}/build_stamp.hpp")
 
 add_custom_target(reaper_cam_stamp
   BYPRODUCTS "${cam_build_stamp}"
-  COMMAND "${CMAKE_COMMAND}" -D "OUTPUT=${cam_build_stamp}"
+  COMMAND "${CMAKE_COMMAND}" -D "OUTPUT=${cam_build_stamp}" -D "VERSION=${PROJECT_VERSION}"
     -P "${CMAKE_SOURCE_DIR}/cmake/WriteBuildStamp.cmake"
   COMMENT "Отметка времени сборки")
 
 add_dependencies(reaper_cam reaper_cam_stamp)
 target_include_directories(reaper_cam PRIVATE "${CMAKE_BINARY_DIR}")
 
-target_link_libraries(reaper_cam PRIVATE cam_capture cam_capture_v4l2 cam_container cam_timing)
+target_link_libraries(reaper_cam PRIVATE
+  cam_capture ${cam_system_capture} cam_container cam_timing)
 
-# Таблица диалога порождена чужим скриптом: её агрегаты инициализированы не
-# полностью, и clang считает это ошибкой при нашем наборе предупреждений.
-set_source_files_properties(src/views/resources.cpp PROPERTIES COMPILE_OPTIONS "-w")
-
-if(NOT WIN32)
+if(WIN32)
+  target_sources(reaper_cam PRIVATE src/views/forms_win.rc)
+else()
+  target_sources(reaper_cam PRIVATE src/views/resources.cpp)
   add_dependencies(reaper_cam reaper_cam_resources)
   target_include_directories(reaper_cam PRIVATE "${swell_res_dir}")
+
+  # Таблица диалога порождена чужим скриптом: её агрегаты инициализированы не
+  # полностью, и clang считает это ошибкой при нашем наборе предупреждений.
+  set_source_files_properties(src/views/resources.cpp PROPERTIES
+    COMPILE_OPTIONS "${cam_no_warnings}")
 endif()
 
 # SYSTEM: SDK и WDL чужие, их предупреждения не наши.
@@ -249,12 +306,26 @@ cam_enable_warnings(reaper_cam)
 
 # Неразрешённый символ иначе доезжает до REAPER и виден только как статус
 # "Error" в списке расширений — без имени символа и без намёка на причину.
-# Флаг переносит эту ошибку на линковку, где видно и то и другое.
+# Флаг переносит эту ошибку на линковку, где видно и то и другое. Линковщики
+# macOS и Windows так поступают и сами.
 #
 # Под санитайзерами он неприменим: там часть символов рантайма остаётся
 # неразрешённой намеренно, их подставляет процесс, который модуль загрузит.
-if(NOT REAPER_CAM_SANITIZE)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT REAPER_CAM_SANITIZE)
   target_link_options(reaper_cam PRIVATE -Wl,--no-undefined)
+endif()
+
+# libstdc++ системы может оказаться старше той, с которой собран модуль
+# (std::format — это GCC 13), и тогда REAPER его не загрузит. Вкомпонованные
+# libstdc++ и libgcc модуль прячет (cmake/reaper_cam.map): у REAPER и других
+# расширений свои.
+if(REAPER_CAM_STATIC_RUNTIME AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(cam_exports "${CMAKE_CURRENT_SOURCE_DIR}/cmake/reaper_cam.map")
+  target_link_options(reaper_cam PRIVATE
+    -static-libstdc++ -static-libgcc
+    "LINKER:--exclude-libs,ALL"
+    "LINKER:--version-script=${cam_exports}")
+  set_property(TARGET reaper_cam APPEND PROPERTY LINK_DEPENDS "${cam_exports}")
 endif()
 
 # REAPER ищет в UserPlugins файлы вида reaper_*.so (.dylib на macOS, .dll на Windows).
@@ -272,6 +343,7 @@ if(NOT WIN32)
   target_compile_definitions(reaper_cam PRIVATE SWELL_PROVIDED_BY_APP)
   if(APPLE)
     set(swell_stub "${wdl_SOURCE_DIR}/WDL/swell/swell-modstub.mm")
+    target_link_libraries(reaper_cam PRIVATE "-framework Cocoa")
   else()
     set(swell_stub "${wdl_SOURCE_DIR}/WDL/swell/swell-modstub-generic.cpp")
   endif()
@@ -280,7 +352,7 @@ if(NOT WIN32)
 
   # Заглушка чужая и собирается в составе своей цели, то есть общий набор
   # предупреждений достаётся и ей. Снимаем: исправить её мы всё равно не можем.
-  set_source_files_properties("${swell_stub}" PROPERTIES COMPILE_OPTIONS "-w")
+  set_source_files_properties("${swell_stub}" PROPERTIES COMPILE_OPTIONS "${cam_no_warnings}")
 endif()
 
 # --- Установка ----------------------------------------------------------------

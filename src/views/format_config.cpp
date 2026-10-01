@@ -18,6 +18,8 @@ namespace {
 /// Сообщение, которым окно REAPER забирает конфигурацию у окна настроек.
 constexpr UINT kGetConfig = WM_USER + 1024;
 
+REAPER_PLUGIN_HINSTANCE resourceModule = nullptr;
+
 // Данные окна: в SWELL GetWindowLong уже размером с указатель, в Win32 для
 // этого есть варианты *Ptr.
 #ifdef _WIN32
@@ -80,7 +82,7 @@ std::vector<std::uint8_t> configBytes(const FormatChoice *choice) {
   return encodeConfig(config);
 }
 
-INT_PTR proc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
+INT_PTR CALLBACK proc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
   case WM_INITDIALOG: {
     setWindowData(dialog, lParam);
@@ -125,6 +127,8 @@ INT_PTR proc(HWND dialog, UINT message, WPARAM wParam, LPARAM lParam) {
 
 } // namespace
 
+void setResourceModule(REAPER_PLUGIN_HINSTANCE module) { resourceModule = module; }
+
 HWND showFormatConfig(const void *cfg, int cfgLength, HWND parent) {
   const std::span<const std::uint8_t> bytes =
       cfg && cfgLength > 0
@@ -134,13 +138,14 @@ HWND showFormatConfig(const void *cfg, int cfgLength, HWND parent) {
   const FormatConfig saved = decodeConfig(bytes).value_or(FormatConfig{});
 
   // Список камер — заново при каждом открытии окна (camera-capture).
-  auto choice = std::make_unique<FormatChoice>(services().backend().list(), saved);
+  capture::Backend &backend = services().backend();
+  auto choice = std::make_unique<FormatChoice>(backend.list(), saved, backend.unsupported());
   journal("format config: {} cameras, saved \"{}\"", choice->cameras().size(), saved.cameraId);
 
   // Дальше выбором владеет окно: удаляет его на WM_DESTROY.
   const FormatChoice *owned = choice.release();
-  HWND dialog = CreateDialogParam(nullptr, MAKEINTRESOURCE(IDD_FORMAT_CONFIG), parent, proc,
-                                  reinterpret_cast<LPARAM>(owned));
+  HWND dialog = CreateDialogParam(resourceModule, MAKEINTRESOURCE(IDD_FORMAT_CONFIG), parent,
+                                  proc, reinterpret_cast<LPARAM>(owned));
   if (!dialog)
     delete owned; // окно не создалось — WM_DESTROY не придёт
   return dialog;

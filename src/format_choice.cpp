@@ -6,7 +6,9 @@
 
 namespace cam::reaper {
 
-FormatChoice::FormatChoice(std::vector<capture::CameraInfo> cameras, FormatConfig saved) {
+FormatChoice::FormatChoice(std::vector<capture::CameraInfo> cameras, FormatConfig saved,
+                           std::string unsupported)
+    : unsupported_(std::move(unsupported)) {
   for (auto &info : cameras)
     cameras_.push_back(Camera{.info = std::move(info), .connected = true});
 
@@ -75,6 +77,11 @@ FormatConfig FormatChoice::config() const {
 std::string FormatChoice::status() const {
   if (!notice_.empty())
     return notice_;
+  // Захвата для ОС нет: «не нашлось» и «не подключена» здесь врут — камеру
+  // ищут не там.
+  const bool recordable = camera_ && cameras_[*camera_].connected;
+  if (!recordable && !unsupported_.empty())
+    return unsupported_;
   if (!camera_)
     return cameras_.empty() ? "No cameras found." : "No camera provides MJPEG.";
   if (!cameras_[*camera_].connected)

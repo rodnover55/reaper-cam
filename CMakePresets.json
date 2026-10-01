@@ -8,7 +8,7 @@
   "configurePresets": [
     {
       "name": "default",
-      "displayName": "Ninja, Release, gcc",
+      "displayName": "Ninja, Release",
       "description": "Обычная сборка: плагин, тесты и линтеры.",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
@@ -26,6 +26,16 @@
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "default",
+      "displayName": "Сборка для раздачи",
+      "description": "Как default, но рантайм C++ вкомпонован в модуль: файл грузится в REAPER на чужой машине без лишних библиотек. Так модуль собирает CI для страницы Releases.",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "REAPER_CAM_STATIC_RUNTIME": "ON"
       }
     },
     {
@@ -53,6 +63,11 @@
       "name": "debug",
       "configurePreset": "debug",
       "displayName": "Собрать отладочную сборку"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "displayName": "Собрать модуль для раздачи"
     },
     {
       "name": "sanitize",
@@ -86,6 +101,18 @@
       }
     },
     {
+      "name": "release",
+      "inherits": "default",
+      "configurePreset": "release",
+      "displayName": "Тесты сборки для раздачи",
+      "description": "Только тесты: линтеры зависят от версии инструментов на машине, а на Windows и macOS их может не быть вовсе. Они проверяются перед push.",
+      "filter": {
+        "exclude": {
+          "label": "lint|slow"
+        }
+      }
+    },
+    {
       "name": "sanitize",
       "inherits": "default",
       "configurePreset": "sanitize",
@@ -115,6 +142,25 @@
         {
           "type": "test",
           "name": "sanitize"
+        }
+      ]
+    },
+    {
+      "name": "release",
+      "displayName": "Модуль для раздачи: сборка и тесты",
+      "description": "То, что CI делает на Linux, Windows и macOS перед выкладкой в Releases.",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "release"
+        },
+        {
+          "type": "build",
+          "name": "release"
+        },
+        {
+          "type": "test",
+          "name": "release"
         }
       ]
     },

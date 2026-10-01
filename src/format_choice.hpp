@@ -27,7 +27,11 @@ public:
   /// Сохранённая камера, которой нет в системе, остаётся в списке с
   /// сохранённым режимом: выбор не теряется. Если камера не сохранена,
   /// выбирается первая с MJPEG и её первый режим.
-  FormatChoice(std::vector<capture::CameraInfo> cameras, FormatConfig saved);
+  ///
+  /// `unsupported` — почему камер этой ОС нет вовсе (Backend::unsupported):
+  /// тогда `status` говорит это вместо «камер не нашлось».
+  FormatChoice(std::vector<capture::CameraInfo> cameras, FormatConfig saved,
+               std::string unsupported = {});
 
   const std::vector<Camera> &cameras() const { return cameras_; }
   std::optional<std::size_t> camera() const { return camera_; }
@@ -49,6 +53,7 @@ private:
   std::optional<std::size_t> camera_;
   std::optional<std::size_t> mode_;
   std::string notice_;
+  std::string unsupported_;
 };
 
 /// Подпись камеры в списке: имя от системы и, если надо, почему её нельзя

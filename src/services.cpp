@@ -9,12 +9,30 @@
 
 #include "test_source.hpp"
 
+// Захват есть только для Linux (design.md D9). На других ОС модуль
+// собирается с пустышкой: формат, окно и чёрный дубль работают, камер нет.
+#ifdef __linux__
 #include "cam/capture_v4l2/v4l2.hpp"
+#else
+#include "cam/capture/unsupported_backend.hpp"
+#endif
 
 namespace cam::reaper {
 namespace {
 
 std::unique_ptr<Services> instance;
+
+std::unique_ptr<capture::Backend> systemBackend() {
+#if defined(__linux__)
+  return std::make_unique<capture_v4l2::V4l2Backend>();
+#elif defined(_WIN32)
+  return std::make_unique<capture::UnsupportedBackend>("Windows");
+#elif defined(__APPLE__)
+  return std::make_unique<capture::UnsupportedBackend>("macOS");
+#else
+  return std::make_unique<capture::UnsupportedBackend>("this system");
+#endif
+}
 
 int (*hostRegister)(const char *name, void *infostruct) = nullptr;
 
@@ -26,7 +44,7 @@ void onMainTimer() {
 } // namespace
 
 Services::Services()
-    : backend_(withTestSource(std::make_unique<capture_v4l2::V4l2Backend>())),
+    : backend_(withTestSource(systemBackend())),
       registry_(std::make_unique<capture::DeviceRegistry>(*backend_)),
       clock_(std::make_unique<AudioClock>(hooks_)) {}
 
@@ -56,7 +74,15 @@ void Services::flushMessages() {
 
 Services &services() { return *instance; }
 
-void initServices() { instance = std::make_unique<Services>(); }
+void initServices() {
+  instance = std::make_unique<Services>();
+
+  // Без захвата расширение всё равно грузится: пусть пользователь узнает об
+  // этом сразу, а не по чёрному дублю после записи.
+  const std::string unsupported = instance->backend().unsupported();
+  if (!unsupported.empty())
+    instance->post(unsupported + " Camera tracks record black video.");
+}
 
 void shutdownServices() { instance.reset(); }
 
