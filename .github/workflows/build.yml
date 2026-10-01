@@ -130,7 +130,9 @@ jobs:
         run: sha256sum reaper_cam.* | tee SHA256SUMS.txt
 
       # Тег с суффиксом (v0.2.0-rc1) — предварительный релиз. Повторный прогон
-      # того же тега заменяет файлы в уже созданном релизе.
+      # того же тега заменяет файлы в уже созданном релизе. Описание — общая
+      # часть из .github/release-notes.md (что на какой системе работает) и
+      # список изменений, собранный GitHub.
       - name: Выкладка
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,5 +145,6 @@ jobs:
             prerelease=""
             case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
             gh release create "$TAG" dist/* --verify-tag --generate-notes \
+              --notes-file .github/release-notes.md \
               --title "reaper-cam $VERSION" $prerelease
           fi
