@@ -14,6 +14,11 @@
 - [x] 2.2 `libs/capture_avf`: AVFoundation (W2). Проверка — сборка macOS в CI
 - [x] 2.3 Ветки в CMake и `systemBackend()`
 - [x] 2.4 Документация и описание релиза
+- [x] 2.5 Камеры без MJPEG (W4): `capture::compressNv12`, `compressYuy2`,
+      `modesInRateRange` — тесты `capture_nv12_test.cpp`,
+      `capture_backend_support_test.cpp`; сжатие VideoToolbox — тест
+      `capture_avf_jpeg_test.cpp` в CI на macOS; Windows — NV12 и YUY2 в
+      Media Foundation
 
 ## 3. Живая проверка
 
@@ -24,6 +29,11 @@
 - [ ] 3.3 Windows: отключение камеры посреди дубля — `not connected` или
       `no frames`, дубль дописывается чёрным
 - [ ] 3.4 macOS: первый arm спрашивает разрешение; после него запись идёт
-- [ ] 3.5 macOS: камера USB с MJPEG записывается, а не останавливается с
-      `camera delivers decoded frames only`; встроенная камера — «(no MJPEG)»
-- [ ] 3.6 macOS: записанный MOV открывается в REAPER как видео
+- [ ] 3.5 macOS: встроенная камера есть в списке с режимами до своего
+      разрешения; запись 1280×720@30 даёт видео 1280×720, 30 кадров в секунду;
+      в журнале отладочной сборки растёт `compressed by VideoToolbox`
+- [ ] 3.6 macOS: камера USB с MJPEG записывается, `compressed here` — 0
+- [ ] 3.7 macOS: записанный MOV открывается в REAPER как видео; синхронность
+      по тестовому кадру отладочной сборки
+- [ ] 3.8 Windows: камера без MJPEG (только NV12 или YUY2) записывается;
+      загрузка процессора при 1280×720@30 приемлема

@@ -1,10 +1,15 @@
-// Захват macOS: AVFoundation, кадры MJPEG как есть.
+// Захват macOS: AVFoundation.
 //
-// Камера открывается в формате MJPEG ('jpeg' или 'dmb1'), а выход данных видео
-// получает пустые настройки: так AVFoundation отдаёт кадры в собственном
-// формате устройства — сжатыми, без разжатия в пиксели. Кадры приходят в
-// обратный вызов на своей очереди GCD, тот кладёт их в очередь, а поток
-// захвата расширения ждёт её с таймаутом.
+// Камера с MJPEG ('jpeg' или 'dmb1', обычно камеры USB) открывается в нём, а
+// выход данных видео получает пустые настройки: так AVFoundation отдаёт кадры
+// в собственном формате устройства — сжатыми, и они пишутся как есть.
+//
+// Камера без MJPEG — встроенная камера Mac, iPhone как камера — отдаёт кадры
+// NV12, и их сжимает в JPEG VideoToolbox (frame_compressor.hpp). Если камера
+// с MJPEG всё же прислала картинку, а не сжатые данные, кадр сжимается так же.
+//
+// Кадры приходят в обратный вызов на своей очереди GCD, тот кладёт их в
+// очередь, а поток захвата расширения ждёт её с таймаутом.
 //
 // Время кадра. Метка кадра — начало съёмки в часах синхронизации сеанса. Она
 // переводится в часы хоста (host time), а оттуда — в часы расширения через
@@ -18,6 +23,8 @@
 #include "cam/capture_avf/avfoundation.hpp"
 
 #include "cam/capture/backend_support.hpp"
+#include "cam/capture_avf/jpeg_compressor.hpp"
+#include "frame_compressor.hpp"
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
@@ -58,12 +65,14 @@ public:
   Inbox(Inbox &&) = delete;
   Inbox &operator=(Inbox &&) = delete;
 
-  void push(Frame frame) {
+  void push(Frame frame, bool compressedHere) {
     {
       const std::scoped_lock lock(mutex_);
       frame.sequence = sequence_++;
       if (frame.timeFromCamera)
         ++timedByCamera_;
+      if (compressedHere)
+        ++compressed_;
       if (frames_.size() >= kQueuedFrames) {
         frames_.pop_front();
         ++dropped_;
@@ -80,15 +89,6 @@ public:
         error_ = reason;
     }
     ready_.notify_all();
-  }
-
-  /// Кадр пришёл разжатым: камера не отдаёт MJPEG как есть.
-  void decoded() {
-    {
-      const std::scoped_lock lock(mutex_);
-      ++decoded_;
-    }
-    fail("camera delivers decoded frames only");
   }
 
   void late() {
@@ -136,9 +136,9 @@ public:
 
   std::string describe() const {
     const std::scoped_lock lock(mutex_);
-    return std::format("AVFoundation: frames {}, timed by camera {}, late {}, decoded {}, "
-                       "dropped in queue {}",
-                       sequence_, timedByCamera_, late_, decoded_, dropped_);
+    return std::format("AVFoundation: frames {}, timed by camera {}, late {}, compressed "
+                       "here {}, dropped in queue {}",
+                       sequence_, timedByCamera_, late_, compressed_, dropped_);
   }
 
 private:
@@ -150,7 +150,7 @@ private:
   std::uint64_t sequence_ = 0;
   std::uint64_t timedByCamera_ = 0;
   std::uint64_t late_ = 0;
-  std::uint64_t decoded_ = 0;
+  std::uint64_t compressed_ = 0;
   std::uint64_t dropped_ = 0;
 };
 
@@ -158,17 +158,24 @@ private:
 
 /// Получатель кадров выхода данных видео.
 @interface CamAvfFrameReceiver : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
-- (instancetype)initWithInbox:(std::shared_ptr<cam::capture_avf::detail::Inbox>)inbox;
+- (instancetype)initWithInbox:(std::shared_ptr<cam::capture_avf::detail::Inbox>)inbox
+                   compressor:
+                       (std::shared_ptr<cam::capture_avf::detail::FrameCompressor>)compressor;
 @end
 
 @implementation CamAvfFrameReceiver {
   std::shared_ptr<cam::capture_avf::detail::Inbox> inbox_;
+  std::shared_ptr<cam::capture_avf::detail::FrameCompressor> compressor_;
 }
 
-- (instancetype)initWithInbox:(std::shared_ptr<cam::capture_avf::detail::Inbox>)inbox {
+- (instancetype)initWithInbox:(std::shared_ptr<cam::capture_avf::detail::Inbox>)inbox
+                   compressor:
+                       (std::shared_ptr<cam::capture_avf::detail::FrameCompressor>)compressor {
   self = [super init];
-  if (self != nil)
+  if (self != nil) {
     inbox_ = std::move(inbox);
+    compressor_ = std::move(compressor);
+  }
   return self;
 }
 
@@ -184,20 +191,28 @@ private:
   CMClockRef host = CMClockGetHostTimeClock();
   const CMTime hostNow = CMClockGetTime(host);
 
-  CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sampleBuffer);
-  if (block == nullptr) {
-    inbox_->decoded();
-    return;
-  }
-
-  const std::size_t length = CMBlockBufferGetDataLength(block);
-  if (length == 0)
-    return; // испорченный кадр — как пропущенный
-
   cam::capture::Frame frame;
-  frame.jpeg.resize(length);
-  if (CMBlockBufferCopyDataBytes(block, 0, length, frame.jpeg.data()) != kCMBlockBufferNoErr)
-    return;
+  bool compressedHere = false;
+
+  if (CVImageBufferRef pixels = CMSampleBufferGetImageBuffer(sampleBuffer)) {
+    // Картинка, а не сжатые данные: камера без MJPEG.
+    auto jpeg = compressor_->compress(pixels);
+    if (!jpeg) {
+      inbox_->fail("cannot compress frames");
+      return;
+    }
+    frame.jpeg = std::move(*jpeg);
+    compressedHere = true;
+  } else {
+    CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sampleBuffer);
+    const std::size_t length = block != nullptr ? CMBlockBufferGetDataLength(block) : 0;
+    if (length == 0)
+      return; // испорченный кадр — как пропущенный
+
+    frame.jpeg.resize(length);
+    if (CMBlockBufferCopyDataBytes(block, 0, length, frame.jpeg.data()) != kCMBlockBufferNoErr)
+      return;
+  }
 
   frame.systemTime = arrival;
   frame.captureTime = arrival;
@@ -218,7 +233,7 @@ private:
     }
   }
 
-  inbox_->push(std::move(frame));
+  inbox_->push(std::move(frame), compressedHere);
 }
 
 - (void)captureOutput:(AVCaptureOutput *)output
@@ -254,24 +269,22 @@ bool isMjpeg(AVCaptureDeviceFormat *format) {
   return codec == kCMVideoCodecType_JPEG || codec == kCMVideoCodecType_JPEG_OpenDML;
 }
 
-/// Режим формата с длительностью кадра `duration`: частота — обратная ей дробь.
-CameraMode formatMode(AVCaptureDeviceFormat *format, CMTime duration) {
-  const CMVideoDimensions size =
-      CMVideoFormatDescriptionGetDimensions(format.formatDescription);
-  return capture::modeOf(size.width, size.height, duration.timescale, duration.value);
-}
-
-std::vector<CameraMode> mjpegModesOf(AVCaptureDevice *device) {
+/// Режимы всех форматов камеры: MJPEG пишется как есть, остальное сжимается
+/// при захвате. У камер USB частоты перечислены по одной (края диапазона
+/// совпадают), у встроенных — диапазоном «от 1 до 30».
+std::vector<CameraMode> modesOf(AVCaptureDevice *device) {
   std::vector<CameraMode> modes;
   for (AVCaptureDeviceFormat *format in device.formats) {
-    if (!isMjpeg(format))
-      continue;
-
-    // У камер USB частоты перечислены по одной: у диапазона края совпадают.
+    const CMVideoDimensions size =
+        CMVideoFormatDescriptionGetDimensions(format.formatDescription);
     for (AVFrameRateRange *range in format.videoSupportedFrameRateRanges) {
-      modes.push_back(formatMode(format, range.minFrameDuration));
-      if (CMTimeCompare(range.minFrameDuration, range.maxFrameDuration) != 0)
-        modes.push_back(formatMode(format, range.maxFrameDuration));
+      // Длительность кадра дробью value/timescale; частота — обратная.
+      const CMTime slowest = range.maxFrameDuration;
+      const CMTime fastest = range.minFrameDuration;
+      for (const CameraMode &mode :
+           capture::modesInRateRange(size.width, size.height, slowest.timescale, slowest.value,
+                                     fastest.timescale, fastest.value))
+        modes.push_back(mode);
     }
   }
 
@@ -282,10 +295,12 @@ std::vector<CameraMode> mjpegModesOf(AVCaptureDevice *device) {
 NSArray<AVCaptureDevice *> *videoDevices() {
   NSMutableArray<AVCaptureDeviceType> *types =
       [NSMutableArray arrayWithObject:AVCaptureDeviceTypeBuiltInWideAngleCamera];
-  if (@available(macOS 14.0, *))
+  if (@available(macOS 14.0, *)) {
     [types addObject:AVCaptureDeviceTypeExternal];
-  else
+    [types addObject:AVCaptureDeviceTypeContinuityCamera]; // iPhone как камера
+  } else {
     [types addObject:AVCaptureDeviceTypeExternalUnknown];
+  }
 
   AVCaptureDeviceDiscoverySession *discovery = [AVCaptureDeviceDiscoverySession
       discoverySessionWithDeviceTypes:types
@@ -323,32 +338,62 @@ void requireCameraAccess() {
 struct Choice {
   AVCaptureDeviceFormat *format = nil;
   CMTime duration = kCMTimeInvalid;
+  /// Формат MJPEG: кадры пишутся как есть.
+  bool mjpeg = false;
 };
 
-std::optional<Choice> choose(AVCaptureDevice *device, const CameraMode &mode) {
-  for (AVCaptureDeviceFormat *format in device.formats) {
-    if (!isMjpeg(format))
-      continue;
+/// Длительность кадра режима в диапазоне `range`. Край диапазона берётся
+/// как его сообщила система: камеры USB принимают только его.
+CMTime durationIn(AVFrameRateRange *range, const CameraMode &mode) {
+  for (const CMTime edge : {range.minFrameDuration, range.maxFrameDuration})
+    if (capture::sameRate(mode, edge.timescale, edge.value))
+      return edge;
+  return CMTimeMake(mode.rateDenominator, mode.rateNumerator);
+}
 
+/// Формат режима. Если режим есть и в MJPEG, и без сжатия, берётся MJPEG:
+/// он пишется без пережатия.
+std::optional<Choice> choose(AVCaptureDevice *device, const CameraMode &mode) {
+  std::optional<Choice> found;
+  for (AVCaptureDeviceFormat *format in device.formats) {
     const CMVideoDimensions size =
         CMVideoFormatDescriptionGetDimensions(format.formatDescription);
     if (size.width != mode.width || size.height != mode.height)
       continue;
 
     for (AVFrameRateRange *range in format.videoSupportedFrameRateRanges) {
-      for (const CMTime duration : {range.minFrameDuration, range.maxFrameDuration}) {
-        if (capture::sameRate(mode, duration.timescale, duration.value))
-          return Choice{.format = format, .duration = duration};
-      }
+      const CMTime slowest = range.maxFrameDuration;
+      const CMTime fastest = range.minFrameDuration;
+      if (!capture::rateInRange(mode, slowest.timescale, slowest.value, fastest.timescale,
+                                fastest.value))
+        continue;
+
+      const Choice choice{
+          .format = format, .duration = durationIn(range, mode), .mjpeg = isMjpeg(format)};
+      if (choice.mjpeg)
+        return choice;
+      if (!found)
+        found = choice;
     }
   }
-  return std::nullopt;
+  return found;
+}
+
+/// Формат кадров, который просит у выхода данных видео захват без MJPEG:
+/// NV12 в диапазоне камеры — без лишнего пересчёта.
+NSDictionary *pixelSettingsFor(AVCaptureDeviceFormat *format) {
+  const FourCharCode native = CMFormatDescriptionGetMediaSubType(format.formatDescription);
+  const OSType pixels = native == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                            ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+  return @{(id)kCVPixelBufferPixelFormatTypeKey : @(pixels)};
 }
 
 class AvfCapture : public capture::Capture {
 public:
   AvfCapture(AVCaptureDevice *device, const CameraMode &mode)
       : inbox_(std::make_shared<detail::Inbox>()),
+        compressor_(std::make_shared<detail::FrameCompressor>(kJpegQuality)),
         queue_(dispatch_queue_create("reaper-cam.capture", DISPATCH_QUEUE_SERIAL)) {
     try {
       start(device, mode);
@@ -373,7 +418,9 @@ public:
     return inbox_->next(timeout);
   }
 
-  std::string describe() const override { return inbox_->describe(); }
+  std::string describe() const override {
+    return inbox_->describe() + ", " + compressor_->describe();
+  }
 
 private:
   void start(AVCaptureDevice *device, const CameraMode &mode) {
@@ -389,10 +436,11 @@ private:
 
     session_ = [[AVCaptureSession alloc] init];
     output_ = [[AVCaptureVideoDataOutput alloc] init];
-    receiver_ = [[CamAvfFrameReceiver alloc] initWithInbox:inbox_];
+    receiver_ = [[CamAvfFrameReceiver alloc] initWithInbox:inbox_ compressor:compressor_];
 
-    // Пустые настройки — собственный формат устройства: MJPEG без разжатия.
-    output_.videoSettings = @{};
+    // MJPEG: пустые настройки — собственный формат устройства, сжатые кадры
+    // без разжатия. Иначе — NV12 для кодера JPEG.
+    output_.videoSettings = choice->mjpeg ? @{} : pixelSettingsFor(choice->format);
     output_.alwaysDiscardsLateVideoFrames = NO;
     [output_ setSampleBufferDelegate:receiver_ queue:queue_];
 
@@ -463,6 +511,7 @@ private:
   }
 
   std::shared_ptr<detail::Inbox> inbox_;
+  std::shared_ptr<detail::FrameCompressor> compressor_;
   dispatch_queue_t queue_;
   AVCaptureSession *session_ = nil;
   AVCaptureVideoDataOutput *output_ = nil;
@@ -479,7 +528,7 @@ std::vector<CameraInfo> AvFoundationBackend::list() {
       CameraInfo camera;
       camera.id = utf8(device.uniqueID);
       camera.name = utf8(device.localizedName);
-      camera.modes = mjpegModesOf(device);
+      camera.modes = modesOf(device);
       cameras.push_back(std::move(camera));
     }
   }

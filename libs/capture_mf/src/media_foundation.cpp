@@ -1,9 +1,11 @@
-// Захват Windows: Media Foundation, кадры MJPEG как есть.
+// Захват Windows: Media Foundation.
 //
 // Источник камеры читается через Source Reader с отключёнными
-// преобразователями форматов: кадр приходит таким, каким его отдал драйвер, и
-// не разжимается. Чтение асинхронное: Media Foundation зовёт обратный вызов
-// из своего потока, тот кладёт кадр в очередь и просит следующий, а поток
+// преобразователями форматов: кадр приходит таким, каким его отдал драйвер.
+// MJPEG пишется как есть; камера без MJPEG отдаёт NV12 или YUY2, и кадр
+// сжимает в JPEG jpeglib (capture::compressNv12, compressYuy2). Если режим
+// есть и в MJPEG, и без сжатия, берётся MJPEG. Чтение асинхронное: Media Foundation зовёт
+// обратный вызов из своего потока, тот кладёт кадр в очередь и просит следующий, а поток
 // захвата расширения ждёт очередь с таймаутом. Синхронное чтение ждало бы
 // кадра сколько угодно и не дало бы заметить молчание камеры.
 //
@@ -16,7 +18,9 @@
 #include "cam/capture_mf/media_foundation.hpp"
 
 #include "cam/capture/backend_support.hpp"
+#include "cam/capture/jpeg_encoder.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -26,6 +30,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -167,40 +172,98 @@ std::vector<ComPtr<IMFActivate>> videoDevices() {
   return devices;
 }
 
-/// Режим MJPEG типа видео; пусто, если тип не MJPEG.
-std::optional<CameraMode> mjpegModeOf(IMFMediaType *type) {
+/// Как уложены байты кадра.
+enum class Packing {
+  Mjpeg, // сжат камерой — пишется как есть
+  Nv12,
+  Yuy2,
+};
+
+/// Тип видеопотока камеры, который расширение умеет записать.
+struct Offer {
+  CameraMode mode;
+  Packing packing = Packing::Mjpeg;
+  ComPtr<IMFMediaType> type;
+};
+
+std::optional<Packing> packingOf(const GUID &subtype) {
+  if (subtype == MFVideoFormat_MJPG)
+    return Packing::Mjpeg;
+  if (subtype == MFVideoFormat_NV12)
+    return Packing::Nv12;
+  if (subtype == MFVideoFormat_YUY2)
+    return Packing::Yuy2;
+  return std::nullopt;
+}
+
+/// Тип видео с режимом; пусто, если формат кадров не MJPEG, NV12 или YUY2.
+std::optional<Offer> offerOf(ComPtr<IMFMediaType> type) {
   GUID major{};
   GUID subtype{};
   if (FAILED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) || major != MFMediaType_Video ||
-      FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) || subtype != MFVideoFormat_MJPG)
+      FAILED(type->GetGUID(MF_MT_SUBTYPE, &subtype)))
+    return std::nullopt;
+
+  const auto packing = packingOf(subtype);
+  if (!packing)
     return std::nullopt;
 
   UINT32 width = 0;
   UINT32 height = 0;
   UINT32 numerator = 0;
   UINT32 denominator = 0;
-  if (FAILED(MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &width, &height)) ||
-      FAILED(MFGetAttributeRatio(type, MF_MT_FRAME_RATE, &numerator, &denominator)) ||
+  if (FAILED(MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &width, &height)) ||
+      FAILED(MFGetAttributeRatio(type.Get(), MF_MT_FRAME_RATE, &numerator, &denominator)) ||
       width == 0 || height == 0 || numerator == 0 || denominator == 0)
     return std::nullopt;
 
-  return capture::modeOf(static_cast<int>(width), static_cast<int>(height), numerator,
-                         denominator);
+  return Offer{.mode = capture::modeOf(static_cast<int>(width), static_cast<int>(height),
+                                       numerator, denominator),
+               .packing = *packing,
+               .type = std::move(type)};
 }
 
-/// Собственные типы видеопотока камеры в MJPEG, с режимами.
-std::vector<std::pair<CameraMode, ComPtr<IMFMediaType>>>
-mjpegTypesOf(IMFSourceReader *reader) {
-  std::vector<std::pair<CameraMode, ComPtr<IMFMediaType>>> types;
+/// Собственные типы видеопотока камеры, которые расширение умеет записать:
+/// сначала MJPEG, потом несжатые — так выбор режима предпочитает MJPEG.
+std::vector<Offer> offersOf(IMFSourceReader *reader) {
+  std::vector<Offer> offers;
   for (DWORD index = 0;; ++index) {
     ComPtr<IMFMediaType> type;
     if (FAILED(reader->GetNativeMediaType(kVideoStream, index, &type)))
       break;
 
-    if (const auto mode = mjpegModeOf(type.Get()))
-      types.emplace_back(*mode, std::move(type));
+    if (auto offer = offerOf(std::move(type)))
+      offers.push_back(std::move(*offer));
   }
-  return types;
+  std::ranges::stable_partition(
+      offers, [](const Offer &offer) { return offer.packing == Packing::Mjpeg; });
+  return offers;
+}
+
+/// Как разобрать кадр выбранного типа.
+struct Layout {
+  Packing packing = Packing::Mjpeg;
+  int width = 0;
+  int height = 0;
+  std::size_t stride = 0;
+  bool videoRange = true;
+};
+
+Layout layoutOf(const Offer &offer) {
+  Layout layout{
+      .packing = offer.packing, .width = offer.mode.width, .height = offer.mode.height};
+  const auto width = static_cast<std::size_t>(layout.width);
+  layout.stride = offer.packing == Packing::Yuy2 ? (width + 1) / 2 * 4 : width;
+
+  UINT32 stride = 0;
+  if (SUCCEEDED(offer.type->GetUINT32(MF_MT_DEFAULT_STRIDE, &stride)) &&
+      static_cast<INT32>(stride) > 0)
+    layout.stride = std::max(layout.stride, static_cast<std::size_t>(stride));
+
+  UINT32 range = 0;
+  layout.videoRange = FAILED(offer.type->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range)) ||
+                      range != MFNominalRange_0_255;
+  return layout;
 }
 
 /// Источник камеры; останавливается вместе с объектом.
@@ -292,8 +355,13 @@ public:
       error = "device error";
     else if ((flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0)
       error = "not connected";
-    else if (sample != nullptr)
-      frame = frameOf(sample, arrival, stampNow);
+    else if (sample != nullptr) {
+      try {
+        frame = frameOf(sample, arrival, stampNow);
+      } catch (const capture::JpegError &) {
+        error = "cannot compress frames";
+      }
+    }
 
     bool again = false;
     {
@@ -327,11 +395,13 @@ public:
   STDMETHODIMP OnEvent(DWORD /*stream*/, IMFMediaEvent * /*event*/) override { return S_OK; }
 
   /// Первая просьба о кадре. `reader` держит этот объект и живёт дольше
-  /// всех его просьб: перед тем как его отпустить, зовут `stop`.
-  void start(IMFSourceReader *reader) {
+  /// всех его просьб: перед тем как его отпустить, зовут `stop`. `layout` —
+  /// как разобрать кадры выбранного типа.
+  void start(IMFSourceReader *reader, const Layout &layout) {
     {
       const std::scoped_lock lock(mutex_);
       reader_ = reader;
+      layout_ = layout;
       pending_ = true;
     }
     request();
@@ -366,8 +436,9 @@ public:
 
   std::string describe() const {
     const std::scoped_lock lock(mutex_);
-    return std::format("Media Foundation: frames {}, timed by driver {}, dropped in queue {}",
-                       sequence_, timedByDriver_, dropped_);
+    return std::format("Media Foundation: frames {}, timed by driver {}, compressed here {}, "
+                       "dropped in queue {}",
+                       sequence_, timedByDriver_, compressed_.load(), dropped_);
   }
 
 private:
@@ -394,7 +465,10 @@ private:
     ready_.notify_all();
   }
 
-  static std::optional<Frame> frameOf(IMFSample *sample, double arrival, double stampNow) {
+  /// Кадр из буфера Media Foundation: MJPEG — как есть, NV12 и YUY2 —
+  /// сжатыми. Зовётся из потока Media Foundation; разметка задана до первой
+  /// просьбы о кадре и дальше не меняется.
+  std::optional<Frame> frameOf(IMFSample *sample, double arrival, double stampNow) {
     ComPtr<IMFMediaBuffer> buffer;
     if (FAILED(sample->ConvertToContiguousBuffer(&buffer)))
       return std::nullopt;
@@ -405,7 +479,12 @@ private:
       return std::nullopt;
 
     Frame frame;
-    frame.jpeg.assign(data, data + length);
+    try {
+      frame.jpeg = toJpeg(std::span<const std::uint8_t>(data, length));
+    } catch (...) {
+      buffer->Unlock();
+      throw;
+    }
     buffer->Unlock();
 
     if (frame.jpeg.empty())
@@ -426,6 +505,39 @@ private:
     return frame;
   }
 
+  std::vector<std::uint8_t> toJpeg(std::span<const std::uint8_t> bytes) {
+    const Layout &layout = layout_;
+    const auto height = static_cast<std::size_t>(layout.height);
+    switch (layout.packing) {
+    case Packing::Mjpeg:
+      return {bytes.begin(), bytes.end()};
+    case Packing::Nv12: {
+      // Плоскость цветности — сразу за плоскостью яркости.
+      const std::size_t lumaBytes = layout.stride * height;
+      if (bytes.size() < lumaBytes)
+        return {};
+      ++compressed_;
+      return capture::compressNv12({.width = layout.width,
+                                    .height = layout.height,
+                                    .luma = bytes.first(lumaBytes),
+                                    .lumaStride = layout.stride,
+                                    .chroma = bytes.subspan(lumaBytes),
+                                    .chromaStride = layout.stride,
+                                    .videoRange = layout.videoRange},
+                                   capture::kCameraJpegQuality);
+    }
+    case Packing::Yuy2:
+      ++compressed_;
+      return capture::compressYuy2({.width = layout.width,
+                                    .height = layout.height,
+                                    .data = bytes,
+                                    .stride = layout.stride,
+                                    .videoRange = layout.videoRange},
+                                   capture::kCameraJpegQuality);
+    }
+    return {};
+  }
+
   std::atomic<ULONG> references_{1};
 
   mutable std::mutex mutex_;
@@ -438,6 +550,8 @@ private:
   std::uint64_t sequence_ = 0;
   std::uint64_t timedByDriver_ = 0;
   std::uint64_t dropped_ = 0;
+  Layout layout_;
+  std::atomic<std::uint64_t> compressed_{0};
 };
 
 class MfCapture : public capture::Capture {
@@ -457,8 +571,7 @@ public:
     if (FAILED(result))
       throw CaptureError(reasonOf(result));
 
-    select(mode);
-    reader_->start(sourceReader_.Get());
+    reader_->start(sourceReader_.Get(), select(mode));
   }
 
   ~MfCapture() override {
@@ -478,21 +591,23 @@ public:
   std::string describe() const override { return reader_->describe(); }
 
 private:
-  void select(const CameraMode &mode) {
+  /// Выбирает тип режима — MJPEG, если он есть, — и возвращает, как
+  /// разбирать его кадры.
+  Layout select(const CameraMode &mode) {
     (void)sourceReader_->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS),
                                             FALSE);
 
-    for (const auto &[offered, type] : mjpegTypesOf(sourceReader_.Get())) {
-      if (offered != mode)
+    for (const Offer &offer : offersOf(sourceReader_.Get())) {
+      if (offer.mode != mode)
         continue;
 
       if (FAILED(sourceReader_->SetStreamSelection(kVideoStream, TRUE)))
         break;
 
       const HRESULT result =
-          sourceReader_->SetCurrentMediaType(kVideoStream, nullptr, type.Get());
+          sourceReader_->SetCurrentMediaType(kVideoStream, nullptr, offer.type.Get());
       if (SUCCEEDED(result))
-        return;
+        return layoutOf(offer);
       if (result == MF_E_HW_MFT_FAILED_START_STREAMING || result == E_ACCESSDENIED)
         throw CaptureError(reasonOf(result));
     }
@@ -540,8 +655,8 @@ std::vector<CameraInfo> MediaFoundationBackend::list() {
       const Source source(object);
       ComPtr<IMFSourceReader> reader;
       if (SUCCEEDED(MFCreateSourceReaderFromMediaSource(source.get(), nullptr, &reader))) {
-        for (const auto &[mode, type] : mjpegTypesOf(reader.Get()))
-          camera.modes.push_back(mode);
+        for (const Offer &offer : offersOf(reader.Get()))
+          camera.modes.push_back(offer.mode);
       }
     }
     (void)device->ShutdownObject();

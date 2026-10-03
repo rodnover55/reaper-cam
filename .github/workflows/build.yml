@@ -95,7 +95,10 @@ jobs:
           dmg=$(echo "$page" | grep -oE 'files/[0-9.x]+/reaper[0-9a-z_]*universal\.dmg' | head -1)
           echo "dmg: $dmg"
           curl -fsSL -o reaper.dmg "https://www.reaper.fm/$dmg"
-          mnt=$(hdiutil attach -nobrowse -readonly reaper.dmg | tail -1 | awk -F'\t' '{print $NF}')
+          # У образа есть окно лицензии: без ответа «Y» hdiutil отменяет монтирование.
+          yes | PAGER=cat hdiutil attach -nobrowse -readonly -mountpoint /tmp/reaper reaper.dmg > /dev/null
+          mnt=/tmp/reaper
+          ls "$mnt"
           app=$(find "$mnt" -maxdepth 2 -name 'REAPER*.app' | head -1)
           echo "app: $app"
           plutil -p "$app/Contents/Info.plist" | grep -iE 'CFBundleShortVersionString|UsageDescription|CFBundleIdentifier'

@@ -25,6 +25,22 @@ CameraMode modeOf(int width, int height, std::int64_t rateNumerator,
 bool sameRate(const CameraMode &mode, std::int64_t rateNumerator,
               std::int64_t rateDenominator);
 
+/// Режимы формата, частоту которого система задаёт диапазоном, — так у
+/// встроенных камер Mac: «от 1 до 30 кадров». В список идут верхний край и
+/// обычные частоты внутри диапазона (60, 50, 30, 25, 24, 20, 15, 10). Диапазон
+/// из одной частоты — как у камер USB — даёт один режим. Частоты — дробью
+/// «кадров за столько секунд», как у `modeOf`.
+std::vector<CameraMode> modesInRateRange(int width, int height, std::int64_t lowNumerator,
+                                         std::int64_t lowDenominator,
+                                         std::int64_t highNumerator,
+                                         std::int64_t highDenominator);
+
+/// Частота режима внутри диапазона, края включены — с той же точностью, с
+/// какой `modeOf` выравнивает частоты.
+bool rateInRange(const CameraMode &mode, std::int64_t lowNumerator,
+                 std::int64_t lowDenominator, std::int64_t highNumerator,
+                 std::int64_t highDenominator);
+
 /// Режимы по порядку списка в окне: крупные и частые — первыми, без повторов.
 void sortModes(std::vector<CameraMode> &modes);
 

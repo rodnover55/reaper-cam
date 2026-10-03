@@ -7,6 +7,8 @@
 using cam::capture::CameraMode;
 using cam::capture::captureTimeFromStamp;
 using cam::capture::modeOf;
+using cam::capture::modesInRateRange;
+using cam::capture::rateInRange;
 using cam::capture::sameRate;
 using cam::capture::sortModes;
 
@@ -60,6 +62,35 @@ TEST_CASE("режимы: крупные и частые первыми, без �
                      {.width = 1280, .height = 720, .rateNumerator = 15, .rateDenominator = 1},
                      {.width = 640, .height = 480, .rateNumerator = 30, .rateDenominator = 1},
                  });
+}
+
+TEST_CASE("режимы диапазона: верхний край и обычные частоты внутри, по убыванию") {
+  // Встроенная камера Mac: от 1 до 30 кадров; длительности — как их сообщает
+  // AVFoundation.
+  const auto modes = modesInRateRange(1920, 1080, 1, 1, 1000000, 33333);
+  std::vector<int> rates;
+  for (const CameraMode &mode : modes) {
+    CHECK(mode.width == 1920);
+    CHECK(mode.rateDenominator == 1);
+    rates.push_back(mode.rateNumerator);
+  }
+  CHECK(rates == std::vector<int>{30, 25, 24, 20, 15, 10});
+}
+
+TEST_CASE("режимы диапазона: диапазон из одной частоты — один режим") {
+  const auto modes = modesInRateRange(640, 480, 30000, 1001, 30000, 1001);
+  REQUIRE(modes.size() == 1);
+  CHECK(modes[0].rateNumerator == 30000);
+  CHECK(modes[0].rateDenominator == 1001);
+}
+
+TEST_CASE("режимы диапазона: частота внутри, на краях и снаружи") {
+  const CameraMode at30{
+      .width = 1280, .height = 720, .rateNumerator = 30, .rateDenominator = 1};
+  CHECK(rateInRange(at30, 1, 1, 1000000, 33333));
+  CHECK(rateInRange(at30, 30, 1, 30, 1));
+  CHECK_FALSE(rateInRange(at30, 1, 1, 25, 1));
+  CHECK_FALSE(rateInRange(at30, 60, 1, 60, 1));
 }
 
 TEST_CASE("время съёмки: метка в чужих часах переносится по возрасту кадра") {

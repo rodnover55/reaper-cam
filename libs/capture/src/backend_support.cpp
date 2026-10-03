@@ -1,6 +1,7 @@
 #include "cam/capture/backend_support.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numeric>
 #include <tuple>
@@ -55,6 +56,41 @@ bool sameRate(const CameraMode &mode, std::int64_t rateNumerator,
   const double rate =
       static_cast<double>(rateNumerator) / static_cast<double>(rateDenominator);
   return near(rate, mode.framesPerSecond());
+}
+
+namespace {
+
+/// Частоты, которые предлагаются внутри непрерывного диапазона.
+constexpr std::array<int, 8> kCommonRates{60, 50, 30, 25, 24, 20, 15, 10};
+
+double rateOf(std::int64_t numerator, std::int64_t denominator) {
+  return denominator > 0 ? static_cast<double>(numerator) / static_cast<double>(denominator)
+                         : 0.0;
+}
+
+} // namespace
+
+bool rateInRange(const CameraMode &mode, std::int64_t lowNumerator,
+                 std::int64_t lowDenominator, std::int64_t highNumerator,
+                 std::int64_t highDenominator) {
+  const double rate = mode.framesPerSecond();
+  const double low = rateOf(lowNumerator, lowDenominator);
+  const double high = rateOf(highNumerator, highDenominator);
+  return rate >= low * (1.0 - kRateTolerance) && rate <= high * (1.0 + kRateTolerance);
+}
+
+std::vector<CameraMode> modesInRateRange(int width, int height, std::int64_t lowNumerator,
+                                         std::int64_t lowDenominator,
+                                         std::int64_t highNumerator,
+                                         std::int64_t highDenominator) {
+  std::vector<CameraMode> modes{modeOf(width, height, highNumerator, highDenominator)};
+  for (const int rate : kCommonRates) {
+    const CameraMode common = modeOf(width, height, rate, 1);
+    if (rateInRange(common, lowNumerator, lowDenominator, highNumerator, highDenominator))
+      modes.push_back(common);
+  }
+  sortModes(modes);
+  return modes;
 }
 
 void sortModes(std::vector<CameraMode> &modes) {
