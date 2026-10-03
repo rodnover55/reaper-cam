@@ -1,6 +1,6 @@
 # Послабления только для тестов; всё остальное наследуется из корневого файла.
 #
-# Все три чека срабатывают на раскрытии макросов doctest, то есть на чужом коде,
+# Эти чеки срабатывают на раскрытии макросов doctest, то есть на чужом коде,
 # попавшем в свой файл. Диагностика привязывается к строке с TEST_CASE или CHECK
 # и выглядит как своя, хотя править в ней нечего.
 #
@@ -11,16 +11,27 @@
 #   bugprone-unchecked-optional-access — после REQUIRE значение заведомо есть,
 #     но поток управления спрятан в макросе, и анализ этого не видит.
 #
-# Ещё два — не про doctest:
+#   -Wc2y-extensions (ExtraArgs ниже) — clang 22 при -Wpedantic считает
+#     __COUNTER__ в TEST_CASE расширением C2y. Это предупреждение компилятора,
+#     а не чек, поэтому снимается ключом, а не в Checks; старый clang ключа
+#     не знает, отсюда -Wno-unknown-warning-option.
 #
-#   cert-msc32-c, cert-msc51-cpp — генератор случайных чисел с постоянным
-#     зерном: в тестах это не уязвимость, а повторяемость прогона.
+# Ещё одно — не про doctest:
+#
+#   bugprone-random-generator-seed (до clang-tidy 22 — cert-msc32-c и
+#     cert-msc51-cpp) — генератор случайных чисел с постоянным зерном: в
+#     тестах это не уязвимость, а повторяемость прогона.
 
 InheritParentConfig: true
 
 Checks: >
+  -bugprone-random-generator-seed,
   -bugprone-unchecked-optional-access,
   -cert-msc32-c,
   -cert-msc51-cpp,
   -misc-use-anonymous-namespace,
   -readability-function-cognitive-complexity
+
+ExtraArgs:
+  - -Wno-unknown-warning-option
+  - -Wno-c2y-extensions

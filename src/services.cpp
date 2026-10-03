@@ -11,11 +11,11 @@
 
 // Захват своей ОС (design.md D9). На ОС, для которой захвата нет, модуль
 // собирается с пустышкой: формат, окно и чёрный дубль работают, камер нет.
-#if defined(__linux__)
+#ifdef __linux__
 #include "cam/capture_v4l2/v4l2.hpp"
-#elif defined(_WIN32)
+#elifdef _WIN32
 #include "cam/capture_mf/media_foundation.hpp"
-#elif defined(__APPLE__)
+#elifdef __APPLE__
 #include "cam/capture_avf/avfoundation.hpp"
 #else
 #include "cam/capture/unsupported_backend.hpp"
@@ -27,11 +27,11 @@ namespace {
 std::unique_ptr<Services> instance;
 
 std::unique_ptr<capture::Backend> systemBackend() {
-#if defined(__linux__)
+#ifdef __linux__
   return std::make_unique<capture_v4l2::V4l2Backend>();
-#elif defined(_WIN32)
+#elifdef _WIN32
   return std::make_unique<capture_mf::MediaFoundationBackend>();
-#elif defined(__APPLE__)
+#elifdef __APPLE__
   return std::make_unique<capture_avf::AvFoundationBackend>();
 #else
   return std::make_unique<capture::UnsupportedBackend>("this system");

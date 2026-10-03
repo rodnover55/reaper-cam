@@ -13,7 +13,7 @@ void FrameGrid::addFrame(std::uint64_t id, double fileTime) {
   while (!frames_.empty() && frames_.back().fileTime > fileTime)
     frames_.pop_back();
 
-  frames_.push_back({id, fileTime});
+  frames_.push_back({.id = id, .fileTime = fileTime});
 }
 
 void FrameGrid::advance(double fileTime) { streamEnd_ = std::max(streamEnd_, fileTime); }
