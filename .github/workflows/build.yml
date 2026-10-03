@@ -86,6 +86,22 @@ jobs:
         if: runner.os == 'macOS'
         run: command -v ninja || brew install ninja
 
+      # ВРЕМЕННО: объявляет ли REAPER доступ к камере (NSCameraUsageDescription).
+      - name: REAPER Info.plist (временная проверка)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          page=$(curl -fsSL https://www.reaper.fm/download.php)
+          dmg=$(echo "$page" | grep -oE 'files/[0-9.x]+/reaper[0-9a-z_]*universal\.dmg' | head -1)
+          echo "dmg: $dmg"
+          curl -fsSL -o reaper.dmg "https://www.reaper.fm/$dmg"
+          mnt=$(hdiutil attach -nobrowse -readonly reaper.dmg | tail -1 | awk -F'\t' '{print $NF}')
+          app=$(find "$mnt" -maxdepth 2 -name 'REAPER*.app' | head -1)
+          echo "app: $app"
+          plutil -p "$app/Contents/Info.plist" | grep -iE 'CFBundleShortVersionString|UsageDescription|CFBundleIdentifier'
+          codesign -d --entitlements - "$app" 2>/dev/null | grep -iE 'camera|device' || echo "no camera entitlement lines"
+          hdiutil detach "$mnt" || true
+
       - uses: actions/checkout@v5
 
       - name: Сборка и тесты
