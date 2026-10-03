@@ -91,5 +91,8 @@ NTSC меньше чем на 0,01 %, выравнивается: в окне и
 - **Кадры камер без MJPEG пережимаются** (W4): качество чуть ниже, чем у
   кадра камеры, и на Windows занят процессор.
 - **Разрешение на камеру зависит от REAPER.** Расширение живёт в процессе
-  REAPER; если в его Info.plist нет `NSCameraUsageDescription`, macOS не даст
-  камеру. Расширение это проверяет и сообщает, но исправить не может.
+  REAPER, и камеру macOS даёт ему, а не расширению. Проверено на REAPER 7.81
+  для macOS: в Info.plist есть `NSCameraUsageDescription` («third-party
+  plug-ins may request access»), в подписи — entitlement
+  `com.apple.security.device.camera`. Старым версиям без них расширение
+  камеру не открывает и говорит почему.
