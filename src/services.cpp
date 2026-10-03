@@ -9,10 +9,14 @@
 
 #include "test_source.hpp"
 
-// Захват есть только для Linux (design.md D9). На других ОС модуль
+// Захват своей ОС (design.md D9). На ОС, для которой захвата нет, модуль
 // собирается с пустышкой: формат, окно и чёрный дубль работают, камер нет.
-#ifdef __linux__
+#if defined(__linux__)
 #include "cam/capture_v4l2/v4l2.hpp"
+#elif defined(_WIN32)
+#include "cam/capture_mf/media_foundation.hpp"
+#elif defined(__APPLE__)
+#include "cam/capture_avf/avfoundation.hpp"
 #else
 #include "cam/capture/unsupported_backend.hpp"
 #endif
@@ -26,9 +30,9 @@ std::unique_ptr<capture::Backend> systemBackend() {
 #if defined(__linux__)
   return std::make_unique<capture_v4l2::V4l2Backend>();
 #elif defined(_WIN32)
-  return std::make_unique<capture::UnsupportedBackend>("Windows");
+  return std::make_unique<capture_mf::MediaFoundationBackend>();
 #elif defined(__APPLE__)
-  return std::make_unique<capture::UnsupportedBackend>("macOS");
+  return std::make_unique<capture_avf::AvFoundationBackend>();
 #else
   return std::make_unique<capture::UnsupportedBackend>("this system");
 #endif

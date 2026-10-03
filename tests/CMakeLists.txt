@@ -5,6 +5,7 @@ add_executable(cam_tests
   main.cpp
   jpeg_decode.cpp
   run_command.cpp
+  capture_backend_support_test.cpp
   capture_device_registry_test.cpp
   capture_test_pattern_test.cpp
   capture_unsupported_backend_test.cpp

@@ -29,7 +29,7 @@ set(cam_standard_includes
   "algorithm" "array" "atomic" "bit" "cassert" "cctype" "charconv" "chrono" "cmath"
   "compare" "condition_variable" "cstddef" "cstdint" "cstring" "deque" "exception" "format" "functional" "limits"
   "map" "memory" "mutex" "numeric" "optional" "ranges" "span" "stdexcept" "string"
-  "string_view" "thread" "type_traits" "utility" "vector")
+  "string_view" "thread" "tuple" "type_traits" "utility" "vector")
 
 # Внутренние заголовки библиотеки лежат рядом с исходниками в src/ и
 # включаются без каталога: "bytes.hpp".
