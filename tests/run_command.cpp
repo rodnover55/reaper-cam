@@ -15,8 +15,10 @@ constexpr const char *kNoStderr = " 2>/dev/null";
 namespace cam::tests {
 
 std::optional<std::string> runCommand(const std::string &command) {
-  // Тестам нужен внешний ffprobe, и оболочка здесь — намеренно.
-  std::FILE *pipe = popen((command + kNoStderr).c_str(), "r"); // NOLINT(cert-env33-c)
+  // Тестам нужен внешний ffprobe, и оболочка здесь — намеренно. Чек в
+  // clang-tidy 22 переименован, поэтому в NOLINT оба имени.
+  // NOLINTNEXTLINE(bugprone-command-processor,cert-env33-c)
+  std::FILE *pipe = popen((command + kNoStderr).c_str(), "r");
   if (!pipe)
     return std::nullopt;
 

@@ -5,7 +5,9 @@ add_executable(cam_tests
   main.cpp
   jpeg_decode.cpp
   run_command.cpp
+  capture_backend_support_test.cpp
   capture_device_registry_test.cpp
+  capture_nv12_test.cpp
   capture_test_pattern_test.cpp
   capture_unsupported_backend_test.cpp
   container_jpeg_tables_test.cpp
@@ -40,6 +42,12 @@ if(TARGET cam_capture_v4l2)
     capture_v4l2_resolve_test.cpp
     capture_v4l2_uvc_clock_test.cpp)
   target_link_libraries(cam_tests PRIVATE cam_capture_v4l2)
+endif()
+
+# Сжатие кадров встроенных камер Mac — только на macOS.
+if(TARGET cam_capture_avf)
+  target_sources(cam_tests PRIVATE capture_avf_jpeg_test.cpp)
+  target_link_libraries(cam_tests PRIVATE cam_capture_avf)
 endif()
 
 cam_enable_warnings(cam_tests)

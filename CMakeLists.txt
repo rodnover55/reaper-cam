@@ -198,13 +198,20 @@ add_subdirectory(libs/timing)
 add_subdirectory(libs/container)
 add_subdirectory(libs/capture)
 
-# Захват зависит от ОС (design.md D9). Пока он есть только для Linux; на
-# Windows и macOS модуль собирается с пустышкой capture::UnsupportedBackend:
-# формат записи и окно настроек есть, камер нет, дубль чёрный.
+# Захват зависит от ОС (design.md D9): V4L2 на Linux, Media Foundation на
+# Windows, AVFoundation на macOS. На прочих ОС модуль собирается с пустышкой
+# capture::UnsupportedBackend: формат записи и окно настроек есть, камер нет,
+# дубль чёрный.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_subdirectory(libs/capture_v4l2)
   add_subdirectory(tools)
   set(cam_system_capture cam_capture_v4l2)
+elseif(WIN32)
+  add_subdirectory(libs/capture_mf)
+  set(cam_system_capture cam_capture_mf)
+elseif(APPLE)
+  add_subdirectory(libs/capture_avf)
+  set(cam_system_capture cam_capture_avf)
 else()
   set(cam_system_capture "")
 endif()

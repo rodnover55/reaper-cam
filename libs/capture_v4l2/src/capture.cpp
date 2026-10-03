@@ -109,7 +109,7 @@ private:
       if (start == MAP_FAILED)
         throw CaptureError("cannot map buffers: " + errorText(errno));
 
-      mapped_.push_back({start, buffer.length});
+      mapped_.push_back({.start = start, .length = buffer.length});
 
       if (const int error = device_.control(VIDIOC_QBUF, &buffer); error != 0)
         throw CaptureError("cannot queue buffers: " + errorText(error));
