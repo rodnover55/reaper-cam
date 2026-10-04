@@ -14,7 +14,7 @@ add_library(cam_capture STATIC
 
 target_include_directories(cam_capture PUBLIC include)
 
-target_link_libraries(cam_capture PRIVATE wdl_lice)
+target_link_libraries(cam_capture PRIVATE wdl_lice fmt::fmt)
 
 # Поток захвата на камеру (design.md D8).
 find_package(Threads REQUIRED)

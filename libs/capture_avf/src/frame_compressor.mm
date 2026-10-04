@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <cstring>
 #include <exception>
-#include <format>
+#include <fmt/format.h>
 #include <span>
 
 namespace cam::capture_avf::detail {
@@ -135,7 +135,7 @@ FrameCompressor::withJpeglib(CVPixelBufferRef pixels) const {
 }
 
 std::string FrameCompressor::describe() const {
-  return std::format("compressed by VideoToolbox {}, by jpeglib {}", byVideoToolbox_.load(),
+  return fmt::format("compressed by VideoToolbox {}, by jpeglib {}", byVideoToolbox_.load(),
                      byJpeglib_.load());
 }
 

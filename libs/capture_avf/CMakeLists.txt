@@ -13,7 +13,8 @@ target_link_libraries(cam_capture_avf
     "-framework CoreMedia"
     "-framework CoreVideo"
     "-framework Foundation"
-    "-framework VideoToolbox")
+    "-framework VideoToolbox"
+    fmt::fmt)
 
 # Объекты Objective-C живут под ARC: держатели в классе C++ освобождают их
 # сами.

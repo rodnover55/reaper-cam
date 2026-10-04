@@ -26,7 +26,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <format>
+#include <fmt/format.h>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -133,7 +133,7 @@ std::string reasonOf(HRESULT result) {
   case MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED:
     return "not connected";
   default:
-    return std::format("device error 0x{:08X}", static_cast<std::uint32_t>(result));
+    return fmt::format("device error 0x{:08X}", static_cast<std::uint32_t>(result));
   }
 }
 
@@ -436,7 +436,7 @@ public:
 
   std::string describe() const {
     const std::scoped_lock lock(mutex_);
-    return std::format("Media Foundation: frames {}, timed by driver {}, compressed here {}, "
+    return fmt::format("Media Foundation: frames {}, timed by driver {}, compressed here {}, "
                        "dropped in queue {}",
                        sequence_, timedByDriver_, compressed_.load(), dropped_);
   }

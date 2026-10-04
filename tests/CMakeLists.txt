@@ -28,7 +28,8 @@ target_link_libraries(cam_tests PRIVATE
   cam_capture
   cam_container
   cam_timing
-  wdl_lice)
+  wdl_lice
+  fmt::fmt)
 
 target_include_directories(cam_tests PRIVATE .)
 

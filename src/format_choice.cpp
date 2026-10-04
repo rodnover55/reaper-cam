@@ -1,8 +1,7 @@
 #include "format_choice.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <format>
+#include <fmt/format.h>
 #include <utility>
 
 namespace cam::reaper {
@@ -99,13 +98,10 @@ std::string cameraLabel(const FormatChoice::Camera &camera) {
 }
 
 std::string modeLabel(const capture::CameraMode &mode) {
-  // Дробная частота — в сотых, целыми числами: std::format с double в libc++
-  // системы есть только с macOS 13.3, а модуль грузится и на более старых.
-  const long hundredths = std::lround(mode.framesPerSecond() * 100.0);
   const std::string rate = mode.rateDenominator == 1
                                ? std::to_string(mode.rateNumerator)
-                               : std::format("{}.{:02}", hundredths / 100, hundredths % 100);
-  return std::format("{}x{}, {} fps", mode.width, mode.height, rate);
+                               : fmt::format("{:.2f}", mode.framesPerSecond());
+  return fmt::format("{}x{}, {} fps", mode.width, mode.height, rate);
 }
 
 } // namespace cam::reaper

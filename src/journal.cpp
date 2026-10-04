@@ -1,6 +1,5 @@
 #include "journal.hpp"
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -21,7 +20,7 @@ std::atomic<int> nextThreadNumber{0};
 
 std::string threadTag() {
   thread_local const int number = nextThreadNumber.fetch_add(1);
-  return number == 0 ? std::string("main") : std::format("T{}", number);
+  return number == 0 ? std::string("main") : fmt::format("T{}", number);
 }
 
 } // namespace
@@ -56,11 +55,7 @@ double journalSeconds(std::chrono::steady_clock::time_point at) {
 void journalLine(std::string_view line) {
   const std::string tag = threadTag();
   const double seconds = std::chrono::duration<double>(Clock::now() - journalStart).count();
-  // Дробное — через snprintf: std::format с double в libc++ системы есть
-  // только с macOS 13.3, а модуль грузится и на более старых.
-  std::array<char, 32> secondsText{};
-  (void)std::snprintf(secondsText.data(), secondsText.size(), "%12.6f", seconds);
-  const std::string text = std::format("{} {:>4} {}\n", secondsText.data(), tag, line);
+  const std::string text = fmt::format("{:12.6f} {:>4} {}\n", seconds, tag, line);
 
   const std::scoped_lock lock(journalMutex);
 

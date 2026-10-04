@@ -71,7 +71,7 @@ AVFoundation). Общее для них — в `cam/capture/backend_support.hpp`
 
 ## Инструменты
 
-Для сборки нужны компилятор, CMake и Ninja. REAPER SDK, WDL и doctest
+Для сборки нужны компилятор, CMake и Ninja. REAPER SDK, WDL, {fmt} и doctest
 скачиваются при конфигурации.
 
 Остальные проверки подключаются сами, если инструмент есть в системе, и

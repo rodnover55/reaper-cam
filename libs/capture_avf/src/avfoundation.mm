@@ -34,7 +34,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <format>
+#include <fmt/format.h>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -136,7 +136,7 @@ public:
 
   std::string describe() const {
     const std::scoped_lock lock(mutex_);
-    return std::format("AVFoundation: frames {}, timed by camera {}, late {}, compressed "
+    return fmt::format("AVFoundation: frames {}, timed by camera {}, late {}, compressed "
                        "here {}, dropped in queue {}",
                        sequence_, timedByCamera_, late_, compressed_, dropped_);
   }

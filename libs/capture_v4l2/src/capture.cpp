@@ -11,7 +11,7 @@
 #include "device.hpp"
 
 #include <cstring>
-#include <format>
+#include <fmt/format.h>
 #include <map>
 #include <memory>
 #include <string>
@@ -233,11 +233,11 @@ public:
     if (!metadata_)
       return "no metadata node: buffer timestamps";
 
-    std::string text = std::format(
+    std::string text = fmt::format(
         "metadata {}: headers {}, with PTS {}, with SCR {}, frames timed by camera {}",
         metadataNode_.string(), headers_, withPts_, withScr_, timedByCamera_);
     if (const auto hz = clock_.deviceClockHz())
-      text += std::format(", camera clock {:.3f} MHz", *hz / 1e6);
+      text += fmt::format(", camera clock {:.3f} MHz", *hz / 1e6);
     return text;
   }
 

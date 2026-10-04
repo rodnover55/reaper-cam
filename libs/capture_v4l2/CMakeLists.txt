@@ -6,6 +6,6 @@ add_library(cam_capture_v4l2 STATIC
   src/uvc_clock.cpp)
 
 target_include_directories(cam_capture_v4l2 PUBLIC include)
-target_link_libraries(cam_capture_v4l2 PUBLIC cam_capture)
+target_link_libraries(cam_capture_v4l2 PUBLIC cam_capture PRIVATE fmt::fmt)
 
 cam_enable_warnings(cam_capture_v4l2)
