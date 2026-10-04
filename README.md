@@ -32,7 +32,7 @@ GitHub Actions (`.github/workflows/build.yml`) на каждый push собир
 |---|---|---|
 | Linux x86_64 | Ubuntu 22.04, GCC 13 | `reaper_cam.so` |
 | Windows x64 | MSVC | `reaper_cam.dll` |
-| macOS 13.3+, arm64 и x86_64 одним файлом | Apple clang | `reaper_cam.dylib` |
+| macOS 10.15+, arm64 и x86_64 одним файлом | Apple clang | `reaper_cam.dylib` |
 
 Файлы лежат в артефактах прогона. Линтеры в CI не идут: их результат зависит
 от версии инструментов, и они остаются в `push-check`.

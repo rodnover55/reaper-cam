@@ -4,8 +4,10 @@
 
 #include <WDL/lice/lice.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <format>
 #include <string>
 
@@ -114,10 +116,15 @@ std::vector<std::uint8_t> TestPattern::render(double fileTime, double timelinePo
   LICE_MemBitmap canvas(kCanvasWidth, kCanvasHeight);
   LICE_Clear(&canvas, kBackground);
 
-  const std::string fileLine = std::format("file {:9.3f}", fileTime);
-  const std::string positionLine = std::format("pos  {:9.3f}", timelinePosition);
-  LICE_DrawText(&canvas, 4, 4, fileLine.c_str(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
-  LICE_DrawText(&canvas, 4, 16, positionLine.c_str(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
+  // Дробное — через snprintf: std::format с double в libc++ системы есть
+  // только с macOS 13.3, а модуль грузится и на более старых.
+  std::array<char, 32> fileLine{};
+  std::array<char, 32> positionLine{};
+  (void)std::snprintf(fileLine.data(), fileLine.size(), "file %9.3f", fileTime);
+  (void)std::snprintf(positionLine.data(), positionLine.size(), "pos  %9.3f",
+                      timelinePosition);
+  LICE_DrawText(&canvas, 4, 4, fileLine.data(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
+  LICE_DrawText(&canvas, 4, 16, positionLine.data(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
 
   drawBar(&canvas, kFileTimeBarTop, toMilliseconds(fileTime));
   drawBar(&canvas, kPositionBarTop, toMilliseconds(timelinePosition));

@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
-# std::format с дробными числами libc++ системы умеет начиная с macOS 13.3:
-# на более старой система модуль не загрузит. Задаётся до project() — так
+# Наименьшая macOS — 10.15: с неё в libc++ системы есть std::filesystem, а в
+# AVFoundation — поиск камер, которым пользуется захват. Так модуль грузится и
+# на Intel-маках, для которых последняя система — 10.15–12 (MacBook Pro 2015 и
+# соседи). std::format с дробными числами libc++ даёт только с 13.3, поэтому
+# дробное в коде печатается через snprintf. Задаётся до project() — так
 # требует CMake; на других ОС ни на что не влияет.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "13.3" CACHE STRING "Наименьшая версия macOS")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Наименьшая версия macOS")
 
 project(reaper-cam
   VERSION 0.1.0

@@ -91,6 +91,19 @@ jobs:
       - name: Сборка и тесты
         run: cmake --workflow --preset release
 
+      # Файл для macOS — на оба процессора и для Intel-маков с macOS 10.15+
+      # (MacBook Pro 2015 и соседи). Проверяется сам файл, а не флаги сборки;
+      # половина для Intel проходит тесты под Rosetta.
+      - name: Сборка для Intel-маков
+        if: runner.os == 'macOS'
+        run: |
+          lipo -verify_arch build/release/reaper_cam.dylib arm64 x86_64
+          minos=$(vtool -arch x86_64 -show-build build/release/reaper_cam.dylib | awk '/minos/ {print $2}')
+          echo "x86_64: minos $minos"
+          test "$minos" = "10.15"
+          /usr/bin/pgrep -q oahd || softwareupdate --install-rosetta --agree-to-license
+          arch -x86_64 build/release/tests/cam_tests
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.file }}
