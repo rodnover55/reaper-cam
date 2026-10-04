@@ -389,6 +389,18 @@ NSDictionary *pixelSettingsFor(AVCaptureDeviceFormat *format) {
   return @{(id)kCVPixelBufferPixelFormatTypeKey : @(pixels)};
 }
 
+/// Часы, в которых сеанс ставит метки кадрам. До macOS 12.3 они назывались
+/// masterClock; модуль грузится и на более старых системах (MacBook Pro 2015
+/// доходит до 12.x).
+CMClockRef synchronizationClockOf(AVCaptureSession *session) {
+  if (@available(macOS 12.3, *))
+    return session.synchronizationClock;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  return session.masterClock;
+#pragma clang diagnostic pop
+}
+
 class AvfCapture : public capture::Capture {
 public:
   AvfCapture(AVCaptureDevice *device, const CameraMode &mode)
@@ -470,7 +482,7 @@ private:
     if (!session_.running)
       throw CaptureError("cannot start");
 
-    inbox_->setClock(session_.synchronizationClock);
+    inbox_->setClock(synchronizationClockOf(session_));
   }
 
   /// Останавливает то, что успело запуститься. Сообщения нулевым объектам в
