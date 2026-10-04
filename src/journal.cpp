@@ -20,7 +20,7 @@ std::atomic<int> nextThreadNumber{0};
 
 std::string threadTag() {
   thread_local const int number = nextThreadNumber.fetch_add(1);
-  return number == 0 ? std::string("main") : std::format("T{}", number);
+  return number == 0 ? std::string("main") : fmt::format("T{}", number);
 }
 
 } // namespace
@@ -55,7 +55,7 @@ double journalSeconds(std::chrono::steady_clock::time_point at) {
 void journalLine(std::string_view line) {
   const std::string tag = threadTag();
   const double seconds = std::chrono::duration<double>(Clock::now() - journalStart).count();
-  const std::string text = std::format("{:12.6f} {:>4} {}\n", seconds, tag, line);
+  const std::string text = fmt::format("{:12.6f} {:>4} {}\n", seconds, tag, line);
 
   const std::scoped_lock lock(journalMutex);
 

@@ -32,17 +32,22 @@ GitHub Actions (`.github/workflows/build.yml`) на каждый push собир
 |---|---|---|
 | Linux x86_64 | Ubuntu 22.04, GCC 13 | `reaper_cam.so` |
 | Windows x64 | MSVC | `reaper_cam.dll` |
-| macOS 13.3+, arm64 и x86_64 одним файлом | Apple clang | `reaper_cam.dylib` |
+| macOS 10.15+, arm64 и x86_64 одним файлом | Apple clang | `reaper_cam.dylib` |
 
 Файлы лежат в артефактах прогона. Линтеры в CI не идут: их результат зависит
 от версии инструментов, и они остаются в `push-check`.
 
-Захват камер пока есть только для Linux. На Windows и macOS модуль
-собирается с пустышкой `capture::UnsupportedBackend`
-(`libs/capture/include/cam/capture/unsupported_backend.hpp`): формат и окно
-настроек работают, камер нет, дубль чёрный, а консоль и окно говорят почему.
-Захват для новой ОС — своя библиотека рядом с `libs/capture_v4l2` и ветка в
+Захват камер у каждой ОС свой: `libs/capture_v4l2` (Linux, V4L2),
+`libs/capture_mf` (Windows, Media Foundation), `libs/capture_avf` (macOS,
+AVFoundation). Общее для них — в `cam/capture/backend_support.hpp`: режимы из
+частоты, которую сообщает система, и перенос метки времени кадра в часы
+расширения. На прочих ОС модуль собирается с пустышкой
+`capture::UnsupportedBackend`: формат и окно настроек работают, камер нет,
+дубль чёрный. Захват для новой ОС — своя библиотека рядом с этими и ветка в
 `systemBackend()` (`src/services.cpp`).
+
+Захват Windows и macOS CI только собирает: камер у сборщиков нет, и живьём
+его нужно проверять на своей машине.
 
 Чтобы модуль грузился на чужих машинах, пресет `release` включает
 `REAPER_CAM_STATIC_RUNTIME`: на Linux libstdc++ вкомпонована и скрыта
@@ -66,7 +71,7 @@ GitHub Actions (`.github/workflows/build.yml`) на каждый push собир
 
 ## Инструменты
 
-Для сборки нужны компилятор, CMake и Ninja. REAPER SDK, WDL и doctest
+Для сборки нужны компилятор, CMake и Ninja. REAPER SDK, WDL, {fmt} и doctest
 скачиваются при конфигурации.
 
 Остальные проверки подключаются сами, если инструмент есть в системе, и

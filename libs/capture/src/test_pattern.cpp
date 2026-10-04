@@ -6,7 +6,7 @@
 
 #include <cmath>
 #include <cstddef>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 
 namespace cam::capture {
@@ -114,8 +114,8 @@ std::vector<std::uint8_t> TestPattern::render(double fileTime, double timelinePo
   LICE_MemBitmap canvas(kCanvasWidth, kCanvasHeight);
   LICE_Clear(&canvas, kBackground);
 
-  const std::string fileLine = std::format("file {:9.3f}", fileTime);
-  const std::string positionLine = std::format("pos  {:9.3f}", timelinePosition);
+  const std::string fileLine = fmt::format("file {:9.3f}", fileTime);
+  const std::string positionLine = fmt::format("pos  {:9.3f}", timelinePosition);
   LICE_DrawText(&canvas, 4, 4, fileLine.c_str(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
   LICE_DrawText(&canvas, 4, 16, positionLine.c_str(), kWhite, 1.0F, LICE_BLIT_MODE_COPY);
 

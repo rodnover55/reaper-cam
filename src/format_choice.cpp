@@ -1,7 +1,7 @@
 #include "format_choice.hpp"
 
 #include <algorithm>
-#include <format>
+#include <fmt/format.h>
 #include <utility>
 
 namespace cam::reaper {
@@ -100,8 +100,8 @@ std::string cameraLabel(const FormatChoice::Camera &camera) {
 std::string modeLabel(const capture::CameraMode &mode) {
   const std::string rate = mode.rateDenominator == 1
                                ? std::to_string(mode.rateNumerator)
-                               : std::format("{:.2f}", mode.framesPerSecond());
-  return std::format("{}x{}, {} fps", mode.width, mode.height, rate);
+                               : fmt::format("{:.2f}", mode.framesPerSecond());
+  return fmt::format("{}x{}, {} fps", mode.width, mode.height, rate);
 }
 
 } // namespace cam::reaper

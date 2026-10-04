@@ -1,5 +1,6 @@
 #include "cam/capture/jpeg_encoder.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdio> // jpeglib.h ждёт FILE объявленным до себя
@@ -66,17 +67,11 @@ struct CompressGuard {
   jpeg_compress_struct *cinfo;
 };
 
-} // namespace
-
-std::vector<std::uint8_t> compressJpeg(std::span<const std::uint8_t> rgb, int width,
-                                       int height, int quality) {
-  if (width <= 0 || height <= 0)
-    throw JpegError("размер картинки должен быть положительным");
-
-  const auto rowBytes = static_cast<std::size_t>(width) * 3;
-  if (rgb.size() != rowBytes * static_cast<std::size_t>(height))
-    throw JpegError("размер буфера не совпадает с размером картинки");
-
+/// Общая часть сжатия: `fillRow(row, y)` кладёт в `row` строку `y` по три
+/// байта на точку в цветовом пространстве `space`.
+template <typename FillRow>
+std::vector<std::uint8_t> compress(int width, int height, J_COLOR_SPACE space, int quality,
+                                   FillRow fillRow) {
   std::vector<std::uint8_t> out;
 
   jpeg_error_mgr errors{};
@@ -99,20 +94,103 @@ std::vector<std::uint8_t> compressJpeg(std::span<const std::uint8_t> rgb, int wi
   cinfo.image_width = static_cast<JDIMENSION>(width);
   cinfo.image_height = static_cast<JDIMENSION>(height);
   cinfo.input_components = 3;
-  cinfo.in_color_space = JCS_RGB;
+  cinfo.in_color_space = space;
 
   jpeg_set_defaults(&cinfo);
   jpeg_set_quality(&cinfo, quality, TRUE);
   jpeg_start_compress(&cinfo, TRUE);
 
+  std::vector<JSAMPLE> row(static_cast<std::size_t>(width) * 3);
   while (cinfo.next_scanline < cinfo.image_height) {
-    // jpeglib не пишет во входную строку, но объявляет её неконстантной.
-    auto *row = const_cast<JSAMPLE *>(rgb.data() + (rowBytes * cinfo.next_scanline));
-    jpeg_write_scanlines(&cinfo, &row, 1);
+    fillRow(std::span<JSAMPLE>(row), static_cast<std::size_t>(cinfo.next_scanline));
+    JSAMPLE *rows = row.data();
+    jpeg_write_scanlines(&cinfo, &rows, 1);
   }
 
   jpeg_finish_compress(&cinfo);
   return out;
+}
+
+/// Видеодиапазон в полный: яркость 16–235 и цветность 16–240 растягиваются
+/// на 0–255, как ждёт JFIF.
+std::uint8_t expandLuma(std::uint8_t value) {
+  const int full = ((static_cast<int>(value) - 16) * 255 + 109) / 219;
+  return static_cast<std::uint8_t>(std::clamp(full, 0, 255));
+}
+
+std::uint8_t expandChroma(std::uint8_t value) {
+  const int full = 128 + (((static_cast<int>(value) - 128) * 255) / 224);
+  return static_cast<std::uint8_t>(std::clamp(full, 0, 255));
+}
+
+} // namespace
+
+std::vector<std::uint8_t> compressJpeg(std::span<const std::uint8_t> rgb, int width,
+                                       int height, int quality) {
+  if (width <= 0 || height <= 0)
+    throw JpegError("размер картинки должен быть положительным");
+
+  const auto rowBytes = static_cast<std::size_t>(width) * 3;
+  if (rgb.size() != rowBytes * static_cast<std::size_t>(height))
+    throw JpegError("размер буфера не совпадает с размером картинки");
+
+  return compress(width, height, JCS_RGB, quality, [&](std::span<JSAMPLE> row, std::size_t y) {
+    std::ranges::copy(rgb.subspan(rowBytes * y, rowBytes), row.begin());
+  });
+}
+
+std::vector<std::uint8_t> compressNv12(const Nv12Image &image, int quality) {
+  if (image.width <= 0 || image.height <= 0)
+    throw JpegError("размер картинки должен быть положительным");
+
+  const auto width = static_cast<std::size_t>(image.width);
+  const auto height = static_cast<std::size_t>(image.height);
+  const std::size_t chromaWidth = (width + 1) / 2 * 2;
+  const std::size_t chromaRows = (height + 1) / 2;
+  if (image.lumaStride < width || image.chromaStride < chromaWidth ||
+      image.luma.size() < (image.lumaStride * (height - 1)) + width ||
+      image.chroma.size() < (image.chromaStride * (chromaRows - 1)) + chromaWidth)
+    throw JpegError("плоскости кадра меньше его размера");
+
+  // Цветность одна на квадрат 2×2: строка JPEG получает её повторённой.
+  return compress(image.width, image.height, JCS_YCbCr, quality,
+                  [&](std::span<JSAMPLE> row, std::size_t y) {
+                    const auto luma = image.luma.subspan(image.lumaStride * y, width);
+                    const auto chroma =
+                        image.chroma.subspan(image.chromaStride * (y / 2), chromaWidth);
+                    for (std::size_t x = 0; x < width; ++x) {
+                      const std::uint8_t cb = chroma[(x / 2) * 2];
+                      const std::uint8_t cr = chroma[((x / 2) * 2) + 1];
+                      row[(x * 3)] = image.videoRange ? expandLuma(luma[x]) : luma[x];
+                      row[(x * 3) + 1] = image.videoRange ? expandChroma(cb) : cb;
+                      row[(x * 3) + 2] = image.videoRange ? expandChroma(cr) : cr;
+                    }
+                  });
+}
+
+std::vector<std::uint8_t> compressYuy2(const Yuy2Image &image, int quality) {
+  if (image.width <= 0 || image.height <= 0)
+    throw JpegError("размер картинки должен быть положительным");
+
+  const auto width = static_cast<std::size_t>(image.width);
+  const auto height = static_cast<std::size_t>(image.height);
+  const std::size_t rowBytes = (width + 1) / 2 * 4;
+  if (image.stride < rowBytes || image.data.size() < (image.stride * (height - 1)) + rowBytes)
+    throw JpegError("кадр меньше его размера");
+
+  return compress(image.width, image.height, JCS_YCbCr, quality,
+                  [&](std::span<JSAMPLE> row, std::size_t y) {
+                    const auto source = image.data.subspan(image.stride * y, rowBytes);
+                    for (std::size_t x = 0; x < width; ++x) {
+                      const std::size_t pair = (x / 2) * 4;
+                      const std::uint8_t luma = source[pair + ((x % 2) * 2)];
+                      const std::uint8_t cb = source[pair + 1];
+                      const std::uint8_t cr = source[pair + 3];
+                      row[(x * 3)] = image.videoRange ? expandLuma(luma) : luma;
+                      row[(x * 3) + 1] = image.videoRange ? expandChroma(cb) : cb;
+                      row[(x * 3) + 2] = image.videoRange ? expandChroma(cr) : cr;
+                    }
+                  });
 }
 
 std::vector<std::uint8_t> compressBlackFrame(int width, int height) {

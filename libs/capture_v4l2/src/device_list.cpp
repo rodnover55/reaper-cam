@@ -4,13 +4,14 @@
 
 #include "device.hpp"
 
+#include "cam/capture/backend_support.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <numeric>
 #include <set>
 #include <system_error>
-#include <tuple>
 
 #include <linux/videodev2.h>
 
@@ -107,13 +108,7 @@ std::vector<capture::CameraMode> mjpegModesOf(const fs::path &node) {
     }
   }
 
-  // Крупные и частые — первыми.
-  std::ranges::sort(modes, [](const capture::CameraMode &a, const capture::CameraMode &b) {
-    return std::tuple(a.width * a.height, a.framesPerSecond()) >
-           std::tuple(b.width * b.height, b.framesPerSecond());
-  });
-  const auto duplicates = std::ranges::unique(modes);
-  modes.erase(duplicates.begin(), duplicates.end());
+  capture::sortModes(modes);
   return modes;
 }
 

@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.25)
 
-# std::format с дробными числами libc++ системы умеет начиная с macOS 13.3:
-# на более старой система модуль не загрузит. Задаётся до project() — так
+# Наименьшая macOS — 10.15: с неё в libc++ системы есть std::filesystem, а в
+# AVFoundation — поиск камер, которым пользуется захват. Так модуль грузится и
+# на Intel-маках, для которых последняя система — 10.15–12 (MacBook Pro 2015 и
+# соседи). std::format там нет (см. {fmt} ниже). Задаётся до project() — так
 # требует CMake; на других ОС ни на что не влияет.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "13.3" CACHE STRING "Наименьшая версия macOS")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Наименьшая версия macOS")
 
 project(reaper-cam
   VERSION 0.1.0
@@ -98,6 +100,20 @@ FetchContent_Declare(wdl
   URL_HASH SHA256=19820bfa25e494b743903ac9b84c3ce0148ae83697ee91045d9b2ac6ba3f78a5)
 
 FetchContent_MakeAvailable(reaper_sdk wdl)
+
+# {fmt} вместо std::format. std::format из libc++ системы macOS работает только
+# с 13.3: любой его вызов тянет печать дробных, а её там раньше нет. Модуль же
+# должен грузиться и на Intel-маках с 10.15–12. Синтаксис тот же: std::format
+# вырос из {fmt}. Версия зафиксирована по коммиту тега 12.0.0.
+FetchContent_Declare(fmt
+  GIT_REPOSITORY https://github.com/fmtlib/fmt
+  GIT_TAG e424e3f2e607da02742f73db84873b8084fc714c)
+set(FMT_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(fmt)
+
+# Чужой код: его предупреждения не наши.
+set_target_properties(fmt PROPERTIES
+  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "$<TARGET_PROPERTY:fmt,INTERFACE_INCLUDE_DIRECTORIES>")
 
 if(REAPER_CAM_BUILD_TESTS)
   FetchContent_Declare(doctest
@@ -198,13 +214,20 @@ add_subdirectory(libs/timing)
 add_subdirectory(libs/container)
 add_subdirectory(libs/capture)
 
-# Захват зависит от ОС (design.md D9). Пока он есть только для Linux; на
-# Windows и macOS модуль собирается с пустышкой capture::UnsupportedBackend:
-# формат записи и окно настроек есть, камер нет, дубль чёрный.
+# Захват зависит от ОС (design.md D9): V4L2 на Linux, Media Foundation на
+# Windows, AVFoundation на macOS. На прочих ОС модуль собирается с пустышкой
+# capture::UnsupportedBackend: формат записи и окно настроек есть, камер нет,
+# дубль чёрный.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_subdirectory(libs/capture_v4l2)
   add_subdirectory(tools)
   set(cam_system_capture cam_capture_v4l2)
+elseif(WIN32)
+  add_subdirectory(libs/capture_mf)
+  set(cam_system_capture cam_capture_mf)
+elseif(APPLE)
+  add_subdirectory(libs/capture_avf)
+  set(cam_system_capture cam_capture_avf)
 else()
   set(cam_system_capture "")
 endif()
@@ -282,7 +305,7 @@ add_dependencies(reaper_cam reaper_cam_stamp)
 target_include_directories(reaper_cam PRIVATE "${CMAKE_BINARY_DIR}")
 
 target_link_libraries(reaper_cam PRIVATE
-  cam_capture ${cam_system_capture} cam_container cam_timing)
+  cam_capture ${cam_system_capture} cam_container cam_timing fmt::fmt)
 
 if(WIN32)
   target_sources(reaper_cam PRIVATE src/views/forms_win.rc)

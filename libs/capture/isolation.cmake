@@ -13,5 +13,6 @@ set(allowed_includes
   "cam/capture/"
   "WDL/lice/"
   "WDL/jpeglib/"
+  "fmt/"
   "cstdio"
   ${cam_standard_includes})

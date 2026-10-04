@@ -4,7 +4,7 @@
 // (design.md D10). В обычной сборке вызовы журнала пусты и ничего не стоят.
 
 #include <chrono>
-#include <format>
+#include <fmt/format.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,9 +26,9 @@ void journalLine(std::string_view line);
 /// в одном потоке, а записанных в журнал из другого.
 double journalSeconds(std::chrono::steady_clock::time_point at);
 
-template <class... Args> void journal(std::format_string<Args...> format, Args &&...args) {
+template <class... Args> void journal(fmt::format_string<Args...> format, Args &&...args) {
 #ifdef CAM_DEBUG_BUILD
-  journalLine(std::format(format, std::forward<Args>(args)...));
+  journalLine(fmt::format(format, std::forward<Args>(args)...));
 #else
   (void)format;
   ((void)args, ...);
