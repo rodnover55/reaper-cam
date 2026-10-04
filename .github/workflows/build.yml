@@ -97,7 +97,7 @@ jobs:
       - name: Сборка для Intel-маков
         if: runner.os == 'macOS'
         run: |
-          lipo -verify_arch build/release/reaper_cam.dylib arm64 x86_64
+          lipo build/release/reaper_cam.dylib -verify_arch arm64 x86_64
           minos=$(vtool -arch x86_64 -show-build build/release/reaper_cam.dylib | awk '/minos/ {print $2}')
           echo "x86_64: minos $minos"
           test "$minos" = "10.15"
